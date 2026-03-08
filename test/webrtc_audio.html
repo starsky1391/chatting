@@ -1,0 +1,209 @@
+<!DOCTYPE html> 
+ <html> 
+ <body> 
+     <h2>WebRTC 音频采集实验</h2> 
+     <button id="startBtn">开启麦克风</button> 
+     <button id="stopBtn">关闭</button> 
+     <button id="connectBtn">连接到另一个用户</button> 
+     <button id="echoBtn">关闭本地回拨</button> 
+     
+     <!-- 隐藏的音频标签，用于播放声音 --> 
+     <audio id="localAudio" autoplay></audio> 
+     <audio id="remoteAudio" autoplay></audio> 
+
+     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script> 
+     <script> 
+         const startBtn = document.getElementById('startBtn'); 
+         const stopBtn = document.getElementById('stopBtn'); 
+         const connectBtn = document.getElementById('connectBtn'); 
+         const echoBtn = document.getElementById('echoBtn'); 
+         const audioComponent = document.getElementById('localAudio'); 
+         const remoteAudioComponent = document.getElementById('remoteAudio'); 
+         let localStream; 
+         let pc; 
+         let socket; 
+         let echoEnabled = true; // 默认开启本地回拨
+         const roomID = '888'; 
+
+         // 初始化Socket.io连接 
+         function initSocket() { 
+             // 初始化socket连接 
+             socket = io('http://localhost:3000'); 
+             console.log('已连接到socket.io服务器'); 
+
+             // 告诉物业：“我要进 888 房间” 
+             socket.emit('join_room', roomID); 
+             console.log('已加入房间:', roomID); 
+
+             // 接收WebRTC消息 
+             socket.on('webrtc_message', async (data) => { 
+                 console.log('收到WebRTC消息:', data.type); 
+                 if (!pc) createPeerConnection(); 
+
+                 try { 
+                     switch (data.type) { 
+                         case 'offer': 
+                             // 【修复】只有在初始状态才处理 Offer 
+                             if (pc.signalingState !== "stable") return; 
+                             
+                             console.log('处理offer:', data.content); 
+                             await pc.setRemoteDescription(new RTCSessionDescription(data.content)); 
+                             const answer = await pc.createAnswer(); 
+                             await pc.setLocalDescription(answer); 
+                             socket.emit('webrtc_message', { roomID, type: 'answer', content: answer }); 
+                             console.log('发送answer:', answer); 
+                             break; 
+
+                         case 'answer': 
+                             // 【修复】只有在我发过 Offer 的情况下才处理 Answer 
+                             if (pc.signalingState === "have-local-offer") { 
+                                 console.log('处理answer:', data.content); 
+                                 await pc.setRemoteDescription(new RTCSessionDescription(data.content)); 
+                                 console.log('answer处理完成'); 
+                             } 
+                             break; 
+
+                         case 'candidate': 
+                             // 【修复】只有在双方交换过名片后，才能添加路口信息 
+                             if (pc.remoteDescription) { 
+                                 console.log('处理ICE候选:', data.content); 
+                                 await pc.addIceCandidate(new RTCIceCandidate(data.content)); 
+                                 console.log('ICE候选处理完成'); 
+                             } 
+                             break; 
+                     } 
+                 } catch (e) { 
+                     console.error("WebRTC 状态机错误:", e); 
+                 } 
+             }); 
+         } 
+
+         // 初始化 WebRTC 连接 
+         function createPeerConnection() { 
+             console.log('创建PeerConnection'); 
+             // 配置 Google 的 STUN 服务器，用于跨网打洞 
+             const config = { 
+                 iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] 
+             }; 
+             pc = new RTCPeerConnection(config); 
+
+             // 连接状态变化时输出日志 
+             pc.onconnectionstatechange = () => { 
+                 console.log('PeerConnection状态:', pc.connectionState); 
+             }; 
+
+             // 发现路口 (ICE) 时发送给对方 
+             pc.onicecandidate = (event) => { 
+                 if (event.candidate) { 
+                     console.log('发送ICE候选:', event.candidate); 
+                     socket.emit('webrtc_message', { roomID, type: 'candidate', content: event.candidate }); 
+                 } else { 
+                     console.log('ICE候选收集完成'); 
+                 } 
+             }; 
+
+             // ICE连接状态变化时输出日志 
+             pc.oniceconnectionstatechange = () => { 
+                 console.log('ICE连接状态:', pc.iceConnectionState); 
+             }; 
+
+             // 收到对方的声音流时播放 
+             pc.ontrack = (event) => { 
+                 console.log('收到远程音频流:', event.streams[0]); 
+                 const remoteAudio = document.getElementById('remoteAudio'); 
+                 remoteAudio.srcObject = event.streams[0]; 
+                 console.log('远程音频流已设置'); 
+             } 
+
+             // 将本地麦克风流添加进去 
+             if (localStream) { 
+                 console.log('添加本地音频流到PeerConnection'); 
+                 localStream.getTracks().forEach(track => pc.addTrack(track, localStream)); 
+                 console.log('本地音频流添加完成'); 
+             } else { 
+                 console.warn('本地音频流不存在，无法添加到PeerConnection'); 
+             } 
+         } 
+
+         // 点击“连接到另一个用户”按钮时触发 
+         async function startCall() { 
+             if (!localStream) { 
+                 console.error('本地音频流不存在，请先点击开启麦克风按钮'); 
+                 alert('请先点击开启麦克风按钮获取音频流'); 
+                 return; 
+             } 
+             
+             if (!pc) createPeerConnection(); 
+             
+             try { 
+                 console.log('开始创建offer'); 
+                 const offer = await pc.createOffer(); 
+                 console.log('创建offer成功:', offer); 
+                 
+                 console.log('设置本地描述'); 
+                 await pc.setLocalDescription(offer); 
+                 console.log('本地描述设置完成'); 
+                 
+                 console.log('发送offer给对方'); 
+                 socket.emit('webrtc_message', { roomID, type: 'offer', content: offer }); 
+                 console.log('offer发送完成'); 
+             } catch (error) { 
+                 console.error('创建offer失败:', error); 
+             } 
+         } 
+
+         startBtn.onclick = async () => { 
+             try { 
+                 // 1. 请求权限并获取音频流 
+                 // constraints 参数告诉浏览器我们需要什么：只要音频，不要视频 
+                 const constraints = { audio: true, video: false }; 
+                 
+                 // navigator.mediaDevices 是浏览器提供的硬件操作接口 
+                 localStream = await navigator.mediaDevices.getUserMedia(constraints); 
+
+                 // 2. 将采集到的流（Stream）赋值给播放组件 
+                 // 这样麦克风的数据就会直接流向扬声器 
+                 audioComponent.srcObject = localStream; 
+
+                 console.log("麦克风已成功开启"); 
+             } catch (error) { 
+                 console.error("获取麦克风失败:", error); 
+                 alert("请确保开启了麦克风权限，并使用 HTTPS 或 localhost 访问"); 
+             } 
+         }; 
+
+         document.getElementById('stopBtn').onclick = () => { 
+             // 停止所有轨道（释放硬件资源） 
+             if (localStream) { 
+                 localStream.getTracks().forEach(track => track.stop()); 
+             } 
+             if (pc) { 
+                 pc.close(); 
+                 pc = null; 
+             } 
+             console.log("麦克风已关闭"); 
+         }; 
+
+         // 连接按钮点击事件 
+         connectBtn.onclick = () => { 
+             initSocket(); 
+             startCall(); 
+             console.log('已连接到服务器并发起呼叫'); 
+         }; 
+
+         // 切换本地回拨按钮点击事件 
+         echoBtn.onclick = () => { 
+             echoEnabled = !echoEnabled; 
+             audioComponent.muted = !echoEnabled; 
+             echoBtn.textContent = echoEnabled ? '关闭本地回拨' : '开启本地回拨'; 
+             console.log(echoEnabled ? '已开启本地回拨' : '已关闭本地回拨'); 
+         }; 
+
+         // 页面加载时初始化socket连接 
+         window.onload = function() { 
+             initSocket(); 
+             console.log('页面已加载，socket连接已初始化'); 
+         }; 
+     </script> 
+ </body> 
+ </html>

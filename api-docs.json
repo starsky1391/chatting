@@ -1,0 +1,732 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Chat Application API",
+    "version": "1.0.0",
+    "description": "API documentation for the chat application"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000/api",
+      "description": "Development server"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "User ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "User name"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "User email"
+          },
+          "avatar": {
+            "type": "string",
+            "description": "User avatar (single character)"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["online", "idle", "do-not-disturb", "offline"],
+            "description": "User status"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "moderator", "member"],
+            "description": "User role in channel"
+          }
+        }
+      },
+      "Channel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Channel ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Channel name"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["text", "voice"],
+            "description": "Channel type"
+          },
+          "description": {
+            "type": "string",
+            "description": "Channel description"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Channel creation time"
+          }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Message ID"
+          },
+          "content": {
+            "type": "string",
+            "description": "Message content"
+          },
+          "sender": {
+            "$ref": "#/components/schemas/User",
+            "description": "Message sender"
+          },
+          "channelId": {
+            "type": "integer",
+            "description": "Channel ID"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Message creation time"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "User email"
+          },
+          "password": {
+            "type": "string",
+            "description": "User password"
+          }
+        },
+        "required": ["email", "password"]
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "User name"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "User email"
+          },
+          "password": {
+            "type": "string",
+            "description": "User password"
+          }
+        },
+        "required": ["name", "email", "password"]
+      },
+      "StatusUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["online", "idle", "do-not-disturb", "offline"],
+            "description": "User status"
+          }
+        },
+        "required": ["status"]
+      },
+      "MessageCreateRequest": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "Message content"
+          }
+        },
+        "required": ["content"]
+      },
+      "SuccessResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Request success status"
+          },
+          "data": {
+            "type": "object",
+            "description": "Response data"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Request success status"
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "integer",
+                "description": "Error code"
+              },
+              "message": {
+                "type": "string",
+                "description": "Error message"
+              }
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "User login",
+        "description": "Authenticate user and return JWT token",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse",
+                  "example": {
+                    "success": true,
+                    "data": {
+                      "user": {
+                        "id": 1,
+                        "name": "You",
+                        "email": "user@example.com",
+                        "avatar": "Y",
+                        "status": "online"
+                      },
+                      "token": "jwt-token-here"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                  "example": {
+                    "success": false,
+                    "error": {
+                      "code": 401,
+                      "message": "Invalid credentials"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "summary": "User registration",
+        "description": "Register new user and return JWT token",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Registration successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse",
+                  "example": {
+                    "success": true,
+                    "data": {
+                      "user": {
+                        "id": 1,
+                        "name": "You",
+                        "email": "user@example.com",
+                        "avatar": "Y",
+                        "status": "online"
+                      },
+                      "token": "jwt-token-here"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                  "example": {
+                    "success": false,
+                    "error": {
+                      "code": 400,
+                      "message": "Invalid request"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/me": {
+      "get": {
+        "summary": "Get current user",
+        "description": "Retrieve current authenticated user information",
+        "responses": {
+          "200": {
+            "description": "User information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse",
+                  "example": {
+                    "success": true,
+                    "data": {
+                      "id": 1,
+                      "name": "You",
+                      "email": "user@example.com",
+                      "avatar": "Y",
+                      "status": "online"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                  "example": {
+                    "success": false,
+                    "error": {
+                      "code": 401,
+                      "message": "Unauthorized"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/me/status": {
+      "put": {
+        "summary": "Update user status",
+        "description": "Update current user's status",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatusUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Status updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse",
+                  "example": {
+                    "success": true,
+                    "data": {
+                      "id": 1,
+                      "name": "You",
+                      "avatar": "Y",
+                      "status": "idle"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                  "example": {
+                    "success": false,
+                    "error": {
+                      "code": 400,
+                      "message": "Invalid status"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/channels": {
+      "get": {
+        "summary": "Get channels",
+        "description": "Retrieve list of channels",
+        "responses": {
+          "200": {
+            "description": "Channels retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse",
+                  "example": {
+                    "success": true,
+                    "data": [
+                      {
+                        "id": 1,
+                        "name": "general",
+                        "type": "text",
+                        "description": "General channel",
+                        "createdAt": "2023-01-01T00:00:00Z"
+                      },
+                      {
+                        "id": 2,
+                        "name": "voice-1",
+                        "type": "voice",
+                        "description": "Voice channel 1",
+                        "createdAt": "2023-01-01T00:00:00Z"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/channels/{id}": {
+      "get": {
+        "summary": "Get channel by ID",
+        "description": "Retrieve channel information by ID",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Channel ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Channel retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse",
+                  "example": {
+                    "success": true,
+                    "data": {
+                      "id": 1,
+                      "name": "general",
+                      "type": "text",
+                      "description": "General channel",
+                      "createdAt": "2023-01-01T00:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                  "example": {
+                    "success": false,
+                    "error": {
+                      "code": 404,
+                      "message": "Channel not found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/channels/{id}/messages": {
+      "get": {
+        "summary": "Get channel messages",
+        "description": "Retrieve messages from a channel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Channel ID"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            },
+            "description": "Number of messages to return"
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Get messages before this message ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Messages retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse",
+                  "example": {
+                    "success": true,
+                    "data": [
+                      {
+                        "id": 1,
+                        "content": "Hello everyone!",
+                        "sender": {
+                          "id": 2,
+                          "name": "Alice",
+                          "avatar": "A"
+                        },
+                        "channelId": 1,
+                        "createdAt": "2023-01-01T00:00:00Z"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create message",
+        "description": "Send a new message to a channel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Channel ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Message sent successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse",
+                  "example": {
+                    "success": true,
+                    "data": {
+                      "id": 2,
+                      "content": "Hello world!",
+                      "sender": {
+                        "id": 1,
+                        "name": "You",
+                        "avatar": "Y"
+                      },
+                      "channelId": 1,
+                      "createdAt": "2023-01-01T00:00:01Z"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/channels/{id}/members": {
+      "get": {
+        "summary": "Get channel members",
+        "description": "Retrieve list of members in a channel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Channel ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Members retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse",
+                  "example": {
+                    "success": true,
+                    "data": [
+                      {
+                        "id": 1,
+                        "name": "You",
+                        "avatar": "Y",
+                        "status": "online",
+                        "role": "admin"
+                      },
+                      {
+                        "id": 2,
+                        "name": "Alice",
+                        "avatar": "A",
+                        "status": "online",
+                        "role": "member"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "socket": {
+    "events": {
+      "connect": {
+        "description": "Client connected to server"
+      },
+      "disconnect": {
+        "description": "Client disconnected from server"
+      },
+      "message:create": {
+        "description": "New message created in a channel",
+        "payload": {
+          "$ref": "#/components/schemas/Message"
+        }
+      },
+      "member:join": {
+        "description": "Member joined the channel",
+        "payload": {
+          "$ref": "#/components/schemas/User"
+        }
+      },
+      "member:leave": {
+        "description": "Member left the channel",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "avatar": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "member:status": {
+        "description": "Member status updated",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["online", "idle", "do-not-disturb", "offline"]
+            }
+          }
+        }
+      }
+    }
+  }
+}

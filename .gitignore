@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+backend/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -19,10 +20,12 @@
 
 # production
 /build
+backend/dist
 
 # misc
 .DS_Store
 *.pem
+.trae
 
 # debug
 npm-debug.log*
