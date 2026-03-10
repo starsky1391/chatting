@@ -79,10 +79,17 @@ const server = createServer(app);
 
 // 配置CORS
 // cors中间件允许来自指定源的跨域请求
-// origin: 允许的来源，默认为'*'（允许所有来源）
+// origin: 允许的来源，检查是否包含 .vercel.app 或 localhost
 // credentials: 是否允许发送cookie
 app.use(cors({
-  origin: config.cors.origin,  // 从配置中获取允许的来源
+  origin: (origin, callback) => {
+    // 检查请求的origin是否包含 .vercel.app 或 localhost
+    if (!origin || origin.includes('.vercel.app') || origin.includes('localhost')) {
+      callback(null, origin);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true           // 允许发送cookie
 }));
 
@@ -133,7 +140,14 @@ app.get('/', (req, res) => {
 // 配置CORS，允许WebSocket连接
 const io = new Server(server, {
   cors: {
-    origin: config.cors.origin,  // 从配置中获取允许的来源
+    origin: (origin, callback) => {
+      // 检查请求的origin是否包含 .vercel.app 或 localhost
+      if (!origin || origin.includes('.vercel.app') || origin.includes('localhost')) {
+        callback(null, origin);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true           // 允许发送cookie
   }
 });
