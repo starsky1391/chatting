@@ -26,6 +26,53 @@ import { sequelize } from './models';
 // dotenv会根据项目根目录下的.env文件配置环境变量
 dotenv.config();
 
+// 初始化Express应用
+// 创建一个Express实例，用于处理HTTP请求
+const app = express();
+
+// CORS 补丁：放在最顶部，确保即使报错也能带上 CORS 头
+app.use((req, res, next) => {
+  // 允许没有 origin 的请求 (如移动端)
+  const origin = req.headers.origin;
+  if (!origin || origin.endsWith('.vercel.app') || origin.includes('localhost') || origin.includes('railway.app')) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  
+  next();
+});
+
+// 配置CORS
+// cors中间件允许来自指定源的跨域请求
+app.use(cors({
+  origin: (origin, callback) => {
+    // 允许没有 origin 的请求 (如移动端)
+    if (!origin) return callback(null, true);
+    
+    // 允许任何以 .vercel.app 结尾的域名、localhost 以及你的 Railway 域名
+    if (origin.endsWith('.vercel.app') || origin.includes('localhost') || origin.includes('railway.app')) {
+      callback(null, true);
+    } else {
+      console.error('CORS 拒绝了来源:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true, // 必须为 true，因为前端带了 Cookie
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
+}));
+
+// 创建HTTP服务器
+// 使用http模块的createServer方法，传入Express应用
+// 这样可以同时支持HTTP请求和WebSocket连接
+const server = createServer(app);
+
 // 导入Channel模型
 import { Channel } from './models/Channel';
 
@@ -64,38 +111,9 @@ sequelize.authenticate()
   })
   .catch((error) => {
     console.error('✗ Database connection failed:', error);
-    // 数据库连接失败时退出进程
-    process.exit(1);
+    // 数据库连接失败时不退出进程，而是打印错误日志
+    console.log('Server will start without database connection...');
   });
-
-// 初始化Express应用
-// 创建一个Express实例，用于处理HTTP请求
-const app = express();
-
-// 创建HTTP服务器
-// 使用http模块的createServer方法，传入Express应用
-// 这样可以同时支持HTTP请求和WebSocket连接
-const server = createServer(app);
-
-// 配置CORS
-// cors中间件允许来自指定源的跨域请求
-app.use(cors({
-  origin: (origin, callback) => {
-    // 允许没有 origin 的请求 (如移动端)
-    if (!origin) return callback(null, true);
-    
-    // 允许任何以 .vercel.app 结尾的域名、localhost 以及你的 Railway 域名
-    if (origin.endsWith('.vercel.app') || origin.includes('localhost') || origin.includes('railway.app')) {
-      callback(null, true);
-    } else {
-      console.error('CORS 拒绝了来源:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true, // 必须为 true，因为前端带了 Cookie
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
-}));
 
 // 配置中间件
 // express.json()用于解析JSON格式的请求体
@@ -367,15 +385,16 @@ io.on('connection', (socket) => {
 });
 
 // 启动服务器
-// 从配置中获取端口，默认为3001
-const PORT = config.port;
+// 动态端口：使用环境变量中的PORT，默认为3001
+const PORT = process.env.PORT || 3001;
 
 // 调用server.listen()方法启动服务器
-server.listen(PORT, () => {
+// 监听所有接口：指定主机为 '0.0.0.0'
+server.listen(Number(PORT), '0.0.0.0', () => {
   // 服务器启动成功后打印日志
-  console.log(`Server is running on http://localhost:${PORT}`);
-  console.log(`API endpoints available at http://localhost:${PORT}/api`);
-  console.log(`Socket.io running on http://localhost:${PORT}`);
+  console.log(`Server is running on http://0.0.0.0:${PORT}`);
+  console.log(`API endpoints available at http://0.0.0.0:${PORT}/api`);
+  console.log(`Socket.io running on http://0.0.0.0:${PORT}`);
 });
 
 // 处理未捕获的Promise拒绝
