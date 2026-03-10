@@ -12,18 +12,25 @@ import { Message } from './Message';
 import { UserChannel } from './UserChannel';
 
 // 创建Sequelize实例
-// 使用配置文件中的数据库连接参数
-const sequelize = new Sequelize({
-  dialect: databaseConfig.dialect as Dialect,
-  host: databaseConfig.host,
-  port: databaseConfig.port,
-  username: databaseConfig.username,
-  password: databaseConfig.password,
-  database: databaseConfig.database,
-  logging: databaseConfig.logging,
-  timezone: databaseConfig.timezone,
-  pool: databaseConfig.pool
-});
+// 优先使用环境变量中的DATABASE_URL
+// 如果没有DATABASE_URL，则使用配置文件中的数据库连接参数
+const sequelize = process.env.DATABASE_URL 
+  ? new Sequelize(process.env.DATABASE_URL, {
+      logging: databaseConfig.logging,
+      timezone: databaseConfig.timezone,
+      pool: databaseConfig.pool
+    })
+  : new Sequelize({
+      dialect: databaseConfig.dialect as Dialect,
+      host: databaseConfig.host,
+      port: databaseConfig.port,
+      username: databaseConfig.username,
+      password: databaseConfig.password,
+      database: databaseConfig.database,
+      logging: databaseConfig.logging,
+      timezone: databaseConfig.timezone,
+      pool: databaseConfig.pool
+    });
 
 // 初始化所有模型
 // 调用每个模型的initialize方法，传入Sequelize实例
