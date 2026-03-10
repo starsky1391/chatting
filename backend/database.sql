@@ -1,11 +1,11 @@
 -- 数据库初始化脚本
--- 创建聊天应用所需的数据库和表结构
+-- 创建聊天应用所需的表结构
 
--- 创建数据库（如果不存在）
-CREATE DATABASE IF NOT EXISTS chat_app;
-
--- 连接到数据库
-\c chat_app;
+-- 注意：请先确保数据库已创建
+-- 可以使用以下命令创建数据库：
+-- psql -U postgres -c "CREATE DATABASE chat_app;"
+-- 然后连接到数据库并运行此脚本：
+-- psql -U postgres -d chat_app -f database.sql
 
 -- 创建用户表
 CREATE TABLE IF NOT EXISTS users (
