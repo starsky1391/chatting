@@ -1,107 +1,107 @@
-# Chat Backend
+# 聊天应用后端
 
-A chat application backend built with Express, TypeScript, and Socket.io.
+使用 Express、TypeScript 和 Socket.io 构建的聊天应用后端。
 
-## Features
+## 功能
 
-- User authentication with JWT
-- Channel management
-- Message handling
-- Real-time communication with Socket.io
-- MVC architecture
-- TypeScript support
-- CORS configuration
+- JWT 用户认证
+- 频道管理
+- 消息处理
+- Socket.io 实时通信
+- MVC 架构
+- TypeScript 支持
+- CORS 配置
 
-## Project Structure
+## 项目结构
 
 ```
 ├── src/
-│   ├── config/          # Configuration files
-│   ├── controllers/     # Request handlers
-│   ├── middleware/      # Express middleware
-│   ├── models/          # Data models
-│   ├── routes/          # API routes
-│   ├── services/        # Business logic
-│   ├── utils/           # Utility functions
-│   └── index.ts         # Application entry point
-├── package.json         # Dependencies and scripts
-├── tsconfig.json        # TypeScript configuration
-├── .eslintrc.json       # ESLint configuration
-└── README.md           # This file
+│   ├── config/          # 配置文件
+│   ├── controllers/     # 请求处理器
+│   ├── middleware/      # Express 中间件
+│   ├── models/          # 数据模型
+│   ├── routes/          # API 路由
+│   ├── services/        # 业务逻辑
+│   ├── utils/           # 工具函数
+│   └── index.ts         # 应用入口点
+├── package.json         # 依赖和脚本
+├── tsconfig.json        # TypeScript 配置
+├── .eslintrc.json       # ESLint 配置
+└── README.md           # 本文件
 ```
 
-## Installation
+## 安装
 
-1. Install dependencies:
+1. 安装依赖：
 
 ```bash
 npm install
 ```
 
-## Development
+## 开发
 
-Start the development server with hot reload:
+启动开发服务器（热重载）：
 
 ```bash
 npm run dev
 ```
 
-The server will be running on http://localhost:3001
+服务器将运行在 http://localhost:3001
 
-## Build
+## 构建
 
-Build the project for production:
+构建生产版本：
 
 ```bash
 npm run build
 ```
 
-## Production
+## 生产环境
 
-Start the production server:
+启动生产服务器：
 
 ```bash
 npm start
 ```
 
-## API Endpoints
+## API 端点
 
-### Authentication
+### 认证
 
-- `POST /api/auth/login` - User login
-- `POST /api/auth/register` - User registration
+- `POST /api/auth/login` - 用户登录
+- `POST /api/auth/register` - 用户注册
 
-### Users
+### 用户
 
-- `GET /api/users/me` - Get current user information
+- `GET /api/users/me` - 获取当前用户信息
 
-### Channels
+### 频道
 
-- `GET /api/channels` - Get all channels
-- `GET /api/channels/:id` - Get channel by ID
-- `POST /api/channels` - Create a new channel
-- `GET /api/channels/:id/members` - Get channel members
+- `GET /api/channels` - 获取所有频道
+- `GET /api/channels/:id` - 根据 ID 获取频道
+- `POST /api/channels` - 创建新频道
+- `GET /api/channels/:id/members` - 获取频道成员
 
-### Messages
+### 消息
 
-- `GET /api/channels/:id/messages` - Get messages by channel ID
-- `POST /api/channels/:id/messages` - Create a new message
+- `GET /api/channels/:id/messages` - 根据频道 ID 获取消息
+- `POST /api/channels/:id/messages` - 创建新消息
 
-## Socket.io Events
+## Socket.io 事件
 
-### Client to Server
+### 客户端到服务器
 
-- `join-channel` - Join a channel
-- `leave-channel` - Leave a channel
-- `send-message` - Send a message to a channel
+- `join-channel` - 加入频道
+- `leave-channel` - 离开频道
+- `send-message` - 向频道发送消息
 
-### Server to Client
+### 服务器到客户端
 
-- `message:create` - New message created
+- `message:create` - 新消息创建
 
-## Response Format
+## 响应格式
 
-All API responses follow this format:
+所有 API 响应遵循以下格式：
 
 ```json
 {
@@ -111,17 +111,17 @@ All API responses follow this format:
 }
 ```
 
-- `code` - HTTP status code
-- `data` - Response data
-- `msg` - Response message
+- `code` - HTTP 状态码
+- `data` - 响应数据
+- `msg` - 响应消息
 
-## Environment Variables
+## 环境变量
 
-- `PORT` - Server port (default: 3001)
-- `JWT_SECRET` - JWT secret key (default: 'your-secret-key')
-- `JWT_EXPIRES_IN` - JWT expiration time (default: '7d')
-- `CORS_ORIGIN` - CORS origin (default: '*')
+- `PORT` - 服务器端口（默认：3001）
+- `JWT_SECRET` - JWT 密钥（默认：'your-secret-key'）
+- `JWT_EXPIRES_IN` - JWT 过期时间（默认：'7d'）
+- `CORS_ORIGIN` - CORS 来源（默认：'*'）
 
-## License
+## 许可证
 
 MIT
