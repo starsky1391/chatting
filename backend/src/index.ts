@@ -79,18 +79,22 @@ const server = createServer(app);
 
 // 配置CORS
 // cors中间件允许来自指定源的跨域请求
-// origin: 允许的来源，检查是否包含 .vercel.app 或 localhost
-// credentials: 是否允许发送cookie
 app.use(cors({
   origin: (origin, callback) => {
-    // 检查请求的origin是否包含 .vercel.app 或 localhost
-    if (!origin || origin.includes('.vercel.app') || origin.includes('localhost')) {
-      callback(null, origin);
+    // 允许没有 origin 的请求 (如移动端)
+    if (!origin) return callback(null, true);
+    
+    // 允许任何以 .vercel.app 结尾的域名、localhost 以及你的 Railway 域名
+    if (origin.endsWith('.vercel.app') || origin.includes('localhost') || origin.includes('railway.app')) {
+      callback(null, true);
     } else {
+      console.error('CORS 拒绝了来源:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true           // 允许发送cookie
+  credentials: true, // 必须为 true，因为前端带了 Cookie
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
 }));
 
 // 配置中间件
@@ -141,14 +145,20 @@ app.get('/', (req, res) => {
 const io = new Server(server, {
   cors: {
     origin: (origin, callback) => {
-      // 检查请求的origin是否包含 .vercel.app 或 localhost
-      if (!origin || origin.includes('.vercel.app') || origin.includes('localhost')) {
-        callback(null, origin);
+      // 允许没有 origin 的请求 (如移动端)
+      if (!origin) return callback(null, true);
+      
+      // 允许任何以 .vercel.app 结尾的域名、localhost 以及你的 Railway 域名
+      if (origin.endsWith('.vercel.app') || origin.includes('localhost') || origin.includes('railway.app')) {
+        callback(null, true);
       } else {
+        console.error('CORS 拒绝了来源:', origin);
         callback(new Error('Not allowed by CORS'));
       }
     },
-    credentials: true           // 允许发送cookie
+    credentials: true, // 必须为 true，因为前端带了 Cookie
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
   }
 });
 
