@@ -1,5 +1,11 @@
 -- 数据库初始化脚本
--- 创建聊天应用所需的所有表结构
+-- 创建聊天应用所需的数据库和表结构
+
+-- 创建数据库（如果不存在）
+CREATE DATABASE IF NOT EXISTS chat_app;
+
+-- 连接到数据库
+\c chat_app;
 
 -- 创建用户表
 CREATE TABLE IF NOT EXISTS users (
