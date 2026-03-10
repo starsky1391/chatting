@@ -18,7 +18,12 @@ const sequelize = process.env.DATABASE_URL
   ? new Sequelize(process.env.DATABASE_URL, {
       logging: databaseConfig.logging,
       timezone: databaseConfig.timezone,
-      pool: databaseConfig.pool
+      pool: databaseConfig.pool,
+      dialectOptions: {
+        ssl: {
+          rejectUnauthorized: false
+        }
+      }
     })
   : new Sequelize({
       dialect: databaseConfig.dialect as Dialect,

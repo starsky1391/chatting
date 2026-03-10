@@ -26,38 +26,41 @@ import { sequelize } from './models';
 // dotenv会根据项目根目录下的.env文件配置环境变量
 dotenv.config();
 
+// 导入Channel模型
+import { Channel } from './models/Channel';
+
 // 初始化数据库连接
 // 在启动服务器前，确保数据库能正确连接
 console.log('Connecting to database...');
 sequelize.authenticate()
   .then(async () => {
     console.log('✓ Database connection established successfully');
-    // 开发环境下自动同步模型到数据库
-    if (process.env.NODE_ENV === 'development') {
-      await sequelize.sync({
-        // 谨慎使用force: true，会删除并重建所有表
-        force: false,
-        // 记录同步信息
-        logging: console.log
-      });
-    }
+    // 自动同步模型到数据库，使用alter: true
+    console.log('Syncing models to database...');
+    await sequelize.sync({
+      alter: true,
+      logging: console.log
+    });
+    console.log('✓ All models synced successfully');
   })
-  .then(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('✓ All models synced successfully');
+  .then(async () => {
+    // 自动填充默认频道数据
+    console.log('Checking for default channels...');
+    const count = await Channel.count();
+    if (count === 0) {
+      console.log('No channels found, creating default channels...');
+      await Channel.bulkCreate([
+        { name: 'general', type: 'text', description: 'General discussion channel' },
+        { name: 'random', type: 'text', description: 'Random topics and fun conversations' },
+        { name: 'development', type: 'text', description: 'Development and coding discussion' },
+        { name: 'design', type: 'text', description: 'Design and UI/UX discussion' },
+        { name: 'voice-1', type: 'voice', description: 'General voice channel' },
+        { name: 'voice-2', type: 'voice', description: 'Private voice channel' }
+      ]);
+      console.log('✓ Default channels created successfully');
+    } else {
+      console.log('✓ Default channels already exist');
     }
-    // 创建默认频道
-    return sequelize.query(`INSERT INTO channels (name, type, description, created_at, updated_at) VALUES 
-      ('general', 'text', 'General discussion channel', NOW(), NOW()),
-      ('random', 'text', 'Random topics and fun conversations', NOW(), NOW()),
-      ('development', 'text', 'Development and coding discussion', NOW(), NOW()),
-      ('design', 'text', 'Design and UI/UX discussion', NOW(), NOW()),
-      ('voice-1', 'voice', 'General voice channel', NOW(), NOW()),
-      ('voice-2', 'voice', 'Private voice channel', NOW(), NOW())
-      ON CONFLICT (name) DO UPDATE SET updated_at = NOW()`);
-  })
-  .then(() => {
-    console.log('✓ Default channels created successfully');
   })
   .catch((error) => {
     console.error('✗ Database connection failed:', error);
