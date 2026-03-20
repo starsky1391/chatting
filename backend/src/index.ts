@@ -115,7 +115,7 @@ const connectToDatabase = async () => {
     }
     
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error('✗ Database connection failed:', error);
     console.error('Error details:', error.message);
     console.error('Error stack:', error.stack);
