@@ -60,7 +60,19 @@ export class UploadController {
     upload.single('image')(req, res, (err) => {
       if (err) {
         // 处理上传错误
-        return ResponseUtil.badRequest(res, err.message);
+        const messageFromObject =
+          typeof err === 'object' && err !== null && 'message' in err
+            ? (err as { message?: unknown }).message
+            : undefined;
+        const errorMessage =
+          err instanceof Error
+            ? err.message
+            : typeof err === 'string'
+              ? err
+              : typeof messageFromObject === 'string'
+                ? messageFromObject
+                : '图片上传失败';
+        return ResponseUtil.badRequest(res, errorMessage);
       }
 
       // 检查是否有文件上传

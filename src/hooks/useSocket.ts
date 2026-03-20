@@ -22,6 +22,19 @@ export const useSocket = (options: UseSocketOptions) => {
   const MAX_RECONNECT_ATTEMPTS = 3;
   const RECONNECT_COOLDOWN = 30000; // 30秒冷却期
 
+  const toError = (err: unknown): Error => {
+    if (err instanceof Error) return err;
+    if (typeof err === 'string') return new Error(err);
+
+    const messageFromObject =
+      typeof err === 'object' && err !== null && 'message' in err
+        ? (err as { message?: unknown }).message
+        : undefined;
+    if (typeof messageFromObject === 'string') return new Error(messageFromObject);
+
+    return new Error('Unknown error');
+  };
+
   // 获取全局socket实例
   const getGlobalSocket = useCallback((): Socket => {
     if (!socketRef.current) {
@@ -92,8 +105,9 @@ export const useSocket = (options: UseSocketOptions) => {
           });
         }
       } catch (error) {
-        console.error('❌ 获取socket实例失败:', error);
-        setSocketError(error as Error);
+        const err = toError(error);
+        console.error('❌ 获取socket实例失败:', err);
+        setSocketError(err);
         setIsConnected(false);
         // 不再抛出错误，而是创建一个模拟的socket实例
         // 这样即使socket连接失败，应用也能继续运行
@@ -153,8 +167,9 @@ export const useSocket = (options: UseSocketOptions) => {
         reconnectAttempts.current = 0;
       }
     } catch (error) {
-      console.error('❌ 连接socket失败:', error);
-      setSocketError(error as Error);
+      const err = toError(error);
+      console.error('❌ 连接socket失败:', err);
+      setSocketError(err);
       setIsConnected(false);
     }
   }, [getGlobalSocket]);
@@ -170,7 +185,8 @@ export const useSocket = (options: UseSocketOptions) => {
       reconnectAttempts.current = 0;
       lastReconnectTime.current = 0;
     } catch (error) {
-      console.error('❌ 断开socket连接失败:', error);
+      const err = toError(error);
+      console.error('❌ 断开socket连接失败:', err);
     }
   }, []);
 
@@ -196,7 +212,8 @@ export const useSocket = (options: UseSocketOptions) => {
         return false;
       }
     } catch (error) {
-      console.error('❌ 发送事件失败:', error);
+      const err = toError(error);
+      console.error('❌ 发送事件失败:', err);
       return false;
     }
   }, [getGlobalSocket]);
@@ -220,7 +237,8 @@ export const useSocket = (options: UseSocketOptions) => {
       }
       return () => {};
     } catch (error) {
-      console.error('❌ 设置事件监听器失败:', error);
+      const err = toError(error);
+      console.error('❌ 设置事件监听器失败:', err);
       return () => {};
     }
   }, [getGlobalSocket]);
@@ -237,7 +255,8 @@ export const useSocket = (options: UseSocketOptions) => {
         socket.once(event, callback);
       }
     } catch (error) {
-      console.error('❌ 设置单次事件监听器失败:', error);
+      const err = toError(error);
+      console.error('❌ 设置单次事件监听器失败:', err);
     }
   }, [getGlobalSocket]);
 
@@ -253,7 +272,8 @@ export const useSocket = (options: UseSocketOptions) => {
         socket.off(event, callback);
       }
     } catch (error) {
-      console.error('❌ 移除事件监听器失败:', error);
+      const err = toError(error);
+      console.error('❌ 移除事件监听器失败:', err);
     }
   }, [getGlobalSocket]);
 

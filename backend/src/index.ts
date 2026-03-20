@@ -115,13 +115,31 @@ const connectToDatabase = async () => {
     }
     
     return true;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('✗ Database connection failed:', error);
-    console.error('Error details:', error.message);
-    console.error('Error stack:', error.stack);
+
+    const messageFromObject =
+      typeof error === 'object' && error !== null && 'message' in error
+        ? (error as { message?: unknown }).message
+        : undefined;
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+          ? error
+          : typeof messageFromObject === 'string'
+            ? messageFromObject
+            : 'Unknown error';
+
+    console.error('Error details:', errorMessage);
+    if (error instanceof Error && error.stack) {
+      console.error('Error stack:', error.stack);
+    }
     
     // 抛出详细的错误信息
-    throw new Error(`Database connection failed: ${error.message}. Please check your DATABASE_URL environment variable.`);
+    throw new Error(
+      `Database connection failed: ${errorMessage}. Please check your DATABASE_URL environment variable.`
+    );
   }
 };
 
