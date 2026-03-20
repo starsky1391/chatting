@@ -79,9 +79,15 @@ import { Channel } from './models/Channel';
 // 初始化数据库连接
 // 在启动服务器前，确保数据库能正确连接
 console.log('Connecting to database...');
-sequelize.authenticate()
-  .then(async () => {
+console.log('Using database URL:', process.env.DATABASE_URL || 'local database config');
+
+// 数据库连接函数
+const connectToDatabase = async () => {
+  try {
+    // 验证数据库连接
+    await sequelize.authenticate();
     console.log('✓ Database connection established successfully');
+    
     // 自动同步模型到数据库，使用alter: true
     console.log('Syncing models to database...');
     await sequelize.sync({
@@ -89,8 +95,7 @@ sequelize.authenticate()
       logging: console.log
     });
     console.log('✓ All models synced successfully');
-  })
-  .then(async () => {
+    
     // 自动填充默认频道数据
     console.log('Checking for default channels...');
     const count = await Channel.count();
@@ -108,12 +113,24 @@ sequelize.authenticate()
     } else {
       console.log('✓ Default channels already exist');
     }
-  })
-  .catch((error) => {
+    
+    return true;
+  } catch (error) {
     console.error('✗ Database connection failed:', error);
-    // 数据库连接失败时不退出进程，而是打印错误日志
-    console.log('Server will start without database connection...');
-  });
+    console.error('Error details:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // 抛出详细的错误信息
+    throw new Error(`Database connection failed: ${error.message}. Please check your DATABASE_URL environment variable.`);
+  }
+};
+
+// 连接数据库
+connectToDatabase().catch((error) => {
+  console.error('Fatal database error:', error);
+  // 数据库连接失败时退出进程
+  process.exit(1);
+});
 
 // 配置中间件
 // express.json()用于解析JSON格式的请求体
