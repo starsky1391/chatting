@@ -11,6 +11,9 @@ import { Channel } from './Channel';
 import { Message } from './Message';
 import { UserChannel } from './UserChannel';
 
+// 检测是否为生产环境（Railway 或明确的 production 模式）
+const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT;
+
 // 创建Sequelize实例
 // 优先使用环境变量中的DATABASE_URL
 // 如果没有DATABASE_URL，则使用配置文件中的数据库连接参数
@@ -20,9 +23,10 @@ const sequelize = process.env.DATABASE_URL
       timezone: databaseConfig.timezone,
       pool: databaseConfig.pool,
       dialectOptions: {
-        ssl: {
+        ssl: isProduction ? {
+          require: true,
           rejectUnauthorized: false
-        }
+        } : undefined
       }
     })
   : new Sequelize({
@@ -34,7 +38,13 @@ const sequelize = process.env.DATABASE_URL
       database: databaseConfig.database,
       logging: databaseConfig.logging,
       timezone: databaseConfig.timezone,
-      pool: databaseConfig.pool
+      pool: databaseConfig.pool,
+      dialectOptions: isProduction ? {
+        ssl: {
+          require: true,
+          rejectUnauthorized: false
+        }
+      } : undefined
     });
 
 // 初始化所有模型
