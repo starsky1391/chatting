@@ -1,6 +1,6 @@
 @echo off
 echo [1/2] Starting Frontend (Root)...
-start cmd /k "npm run dev"
+start cmd /k "cd frontend && npm run dev"
 
 echo [2/2] Starting Backend (./backend)...
 start cmd /k "cd backend && npm run dev"
