@@ -21,6 +21,9 @@ const databaseUrl = process.env.DATABASE_URL
   ? cleanDatabaseUrl(process.env.DATABASE_URL) 
   : '';
 
+// 检测是否为 Railway 生产环境
+const isRailway = !!process.env.RAILWAY_ENVIRONMENT;
+
 // 创建Sequelize实例
 // 优先使用环境变量中的DATABASE_URL
 // 如果没有DATABASE_URL，则使用配置文件中的数据库连接参数
@@ -30,10 +33,10 @@ const sequelize = databaseUrl
       timezone: databaseConfig.timezone,
       pool: databaseConfig.pool,
       dialectOptions: {
-        ssl: {
+        ssl: isRailway ? {
           require: true,
           rejectUnauthorized: false
-        }
+        } : undefined
       }
     })
   : new Sequelize({
@@ -46,12 +49,12 @@ const sequelize = databaseUrl
       logging: databaseConfig.logging,
       timezone: databaseConfig.timezone,
       pool: databaseConfig.pool,
-      dialectOptions: {
+      dialectOptions: isRailway ? {
         ssl: {
           require: true,
           rejectUnauthorized: false
         }
-      }
+      } : undefined
     });
 
 // 初始化所有模型

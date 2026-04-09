@@ -53,3 +53,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Docker volumes (local development)
+docker/postgres/data
+docker/redis/data
+docker/rabbitmq/data
+
+# Docker
+.docker/
+docker-compose.override.yml
