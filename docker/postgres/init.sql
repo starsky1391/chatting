@@ -8,15 +8,15 @@ SET TIME ZONE 'UTC';
 
 -- ============================================
 -- Users table
--- - username: uniqueIndex
--- - email: uniqueIndex
+-- - email: uniqueIndex (用于登录识别)
+-- - username: 可重复，仅普通索引
 -- ============================================
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE,
-    username VARCHAR(50) UNIQUE NOT NULL,
+    username VARCHAR(50) NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
     avatar VARCHAR(255),

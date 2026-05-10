@@ -10,7 +10,7 @@ import (
 // User model with extended profile fields
 type User struct {
 	gorm.Model
-	Username  string `json:"username" gorm:"uniqueIndex;not null"`
+	Username  string `json:"username" gorm:"not null"`
 	Email     string `json:"email" gorm:"uniqueIndex;not null"`
 	Password  string `json:"-" gorm:"not null"`
 	Avatar    string `json:"avatar"`
