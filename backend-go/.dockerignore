@@ -1,0 +1,35 @@
+# Dependencies
+vendor
+
+# Build output
+main
+*.exe
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+*.md
+
+# Test coverage
+coverage.out
+coverage.html
+
+# Misc
+uploads/
+migrations/*.sql.bak

@@ -1,14 +1,53 @@
+# ============================================
+# Frontend Dockerfile with China Mirror
+# Enhanced retry mechanism for unstable networks
+# ============================================
+
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+ARG NEXT_PUBLIC_API_URL=
+ARG NEXT_PUBLIC_SOCKET_URL=
+
+# Dependencies stage
 FROM node:20-alpine AS deps
 
+ARG NPM_REGISTRY
+
+# Use Alibaba mirror for Alpine
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# Install dependencies
 RUN apk add --no-cache libc6-compat
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json* .npmrc ./
 
-RUN npm ci
+# Configure npm with enhanced retry settings
+RUN npm config set registry ${NPM_REGISTRY} && \
+    npm config set fetch-retries 5 && \
+    npm config set fetch-retry-factor 2 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-timeout 300000 && \
+    npm config set maxsockets 10 && \
+    # First attempt: use configured mirror
+    npm install --prefer-offline --no-audit --no-fund --progress=false 2>&1 || \
+    (echo "=== Mirror failed, trying official registry ===" && \
+     npm config set registry https://registry.npmjs.org && \
+     npm install --prefer-offline --no-audit --no-fund --progress=false) 2>&1 || \
+    (echo "=== Official failed, trying again with longer timeout ===" && \
+     npm config set fetch-timeout 600000 && \
+     npm install --prefer-offline --no-audit --no-fund --progress=false)
 
+# Builder stage
 FROM node:20-alpine AS builder
+
+ARG NPM_REGISTRY
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_SOCKET_URL
+
+# Use Alibaba mirror for Alpine
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 WORKDIR /app
 
@@ -17,13 +56,22 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}
+ENV TURBOPACK_DISABLE_FS_BENCHMARKING=1
 
-RUN npm run build
+# Build with output standalone for smaller image
+RUN npm run build -- --no-turbopack 2>&1 || npm run build 2>&1
 
+# Runtime stage
 FROM node:20-alpine AS runner
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+# Use Alibaba mirror for Alpine
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
 
 WORKDIR /app
 

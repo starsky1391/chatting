@@ -1,84 +1,258 @@
-import { io, Socket } from 'socket.io-client';
+// WebSocket connection management
+// Using native WebSocket (compatible with gorilla/websocket backend)
+
 import { config } from './config';
 
-// 全局socket实例
-let socketInstance: Socket | null = null;
-// 连接状态跟踪
+// Global WebSocket instance
+let wsInstance: WebSocket | null = null;
 let isConnecting = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY = 2000;
 
-// socket配置
-const SOCKET_URL = config.api.socketUrl;
-const SOCKET_OPTIONS = () => {
-  const token = localStorage.getItem('token');
-  return {
-    transports: ['websocket', 'polling'],
-    autoConnect: true,
-    reconnection: true,
-    reconnectionAttempts: 3, // 减少重连次数
-    reconnectionDelay: 2000, // 增加重连间隔
-    reconnectionDelayMax: 5000, // 最大重连间隔
-    // 添加超时设置
-    timeout: 10000,
-    // 传递认证令牌
-    auth: {
-      token: token || ''
+// Message handlers
+type MessageHandler = (data: any) => void;
+const messageHandlers: Map<string, Set<MessageHandler>> = new Map();
+
+// Connection state callbacks
+let onConnectCallback: (() => void) | null = null;
+let onDisconnectCallback: (() => void) | null = null;
+
+// Get or create WebSocket instance
+export const getWebSocket = (): WebSocket | null => {
+  if (!wsInstance && !isConnecting) {
+    connectWebSocket();
+  }
+  return wsInstance;
+};
+
+// Connect to WebSocket server
+export const connectWebSocket = (): Promise<WebSocket> => {
+  return new Promise((resolve, reject) => {
+    if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
+      resolve(wsInstance);
+      return;
+    }
+
+    if (isConnecting) {
+      // Wait for existing connection
+      const checkInterval = setInterval(() => {
+        if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
+          clearInterval(checkInterval);
+          resolve(wsInstance);
+        }
+      }, 100);
+      return;
+    }
+
+    isConnecting = true;
+    const token = localStorage.getItem('token');
+    if (!token) {
+      isConnecting = false;
+      reject(new Error('No token available'));
+      return;
+    }
+
+    // WebSocket URL - use ws:// or wss:// based on http/https
+    let wsUrl = config.api.socketUrl;
+    if (wsUrl.startsWith('https://')) {
+      wsUrl = wsUrl.replace('https://', 'wss://');
+    } else if (wsUrl.startsWith('http://')) {
+      wsUrl = wsUrl.replace('http://', 'ws://');
+    }
+    // Pass token as query parameter for WebSocket authentication
+    const url = `${wsUrl}/api/ws?token=${encodeURIComponent(token)}`;
+
+    try {
+      console.log('Attempting WebSocket connection to:', url.replace(/token=[^&]+/, 'token=***'));
+
+      wsInstance = new WebSocket(url);
+
+      wsInstance.onopen = () => {
+        console.log('WebSocket connected');
+        isConnecting = false;
+        reconnectAttempts = 0;
+        if (onConnectCallback) onConnectCallback();
+        resolve(wsInstance!);
+      };
+
+      wsInstance.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          const { type, payload } = message;
+
+          // Debug log for voice events
+          if (type && type.startsWith('voice:')) {
+            console.log('[WS] Received:', type, payload);
+          }
+
+          // Call registered handlers
+          const handlers = messageHandlers.get(type);
+          if (handlers) {
+            handlers.forEach(handler => handler(payload || message));
+          }
+
+          // Call wildcard handlers
+          const wildcardHandlers = messageHandlers.get('*');
+          if (wildcardHandlers) {
+            wildcardHandlers.forEach(handler => handler(message));
+          }
+        } catch (error) {
+          // Silently ignore parse errors for non-JSON messages
+        }
+      };
+
+      wsInstance.onerror = (error) => {
+        // Don't log - WebSocket errors are expected during reconnection
+        isConnecting = false;
+      };
+
+      wsInstance.onclose = (event) => {
+        console.log('WebSocket closed:', event.code, event.reason);
+        isConnecting = false;
+        wsInstance = null;
+        if (onDisconnectCallback) onDisconnectCallback();
+
+        // Attempt reconnect if not a normal closure
+        if (event.code !== 1000 && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+          reconnectAttempts++;
+          console.log(`Reconnecting... Attempt ${reconnectAttempts}`);
+          setTimeout(() => {
+            connectWebSocket().catch(() => {});
+          }, RECONNECT_DELAY * reconnectAttempts);
+        }
+      };
+
+    } catch (error) {
+      isConnecting = false;
+      reject(error);
+    }
+  });
+};
+
+// Send message
+export const sendWebSocketMessage = (type: string, payload?: any): boolean => {
+  if (!wsInstance || wsInstance.readyState !== WebSocket.OPEN) {
+    console.warn('WebSocket not connected');
+    return false;
+  }
+
+  try {
+    // 先展开 payload,再覆盖 type,确保 type 不被 payload 覆盖
+    const message = { ...payload, type };
+    // Debug log for voice events
+    if (type.startsWith('voice:')) {
+      console.log('[WS] Sending:', type, payload);
+    }
+    wsInstance.send(JSON.stringify(message));
+    return true;
+  } catch (error) {
+    console.error('Failed to send WebSocket message:', error);
+    return false;
+  }
+};
+
+// Subscribe to message type
+export const onWebSocketMessage = (type: string, handler: MessageHandler): (() => void) => {
+  if (!messageHandlers.has(type)) {
+    messageHandlers.set(type, new Set());
+  }
+  messageHandlers.get(type)!.add(handler);
+
+  // Return unsubscribe function
+  return () => {
+    const handlers = messageHandlers.get(type);
+    if (handlers) {
+      handlers.delete(handler);
+      if (handlers.size === 0) {
+        messageHandlers.delete(type);
+      }
     }
   };
 };
 
-// 获取或创建socket实例
-export const getSocket = (): Socket => {
-  if (!socketInstance) {
-    try {
-      // 避免重复创建
-      if (isConnecting) {
-        return socketInstance!;
-      }
-      
-      isConnecting = true;
-      socketInstance = io(SOCKET_URL, SOCKET_OPTIONS());
-      
-      // 添加更详细的错误处理
-      socketInstance.on('connect_error', (error) => {
-        // 错误处理逻辑
-      });
-      
-      socketInstance.on('reconnect_error', (error) => {
-        // 错误处理逻辑
-      });
-      
-      socketInstance.on('disconnect', (reason) => {
-        isConnecting = false;
-      });
-      
-      socketInstance.on('connect', () => {
-        isConnecting = false;
-      });
-      
-    } catch (error) {
-      isConnecting = false;
-      // 即使出错，也要返回一个有效的socket实例
-      const options = SOCKET_OPTIONS();
-      socketInstance = io(SOCKET_URL, {
-        ...options,
-        // 出错时使用轮询模式
-        transports: ['polling'],
-      });
-    }
-  }
-  return socketInstance;
+// Set connection callbacks
+export const onConnect = (callback: () => void) => {
+  onConnectCallback = callback;
 };
 
-// 断开并清理socket实例
-export const cleanupSocket = (): void => {
-  if (socketInstance) {
-    try {
-      socketInstance.disconnect();
-      socketInstance = null;
-      isConnecting = false; // 重置连接状态
-    } catch (error) {
-      socketInstance = null;
-      isConnecting = false; // 重置连接状态
-    }
-  }
+export const onDisconnect = (callback: () => void) => {
+  onDisconnectCallback = callback;
 };
+
+// Join a channel
+export const joinChannel = (channelId: number) => {
+  return sendWebSocketMessage('join-channel', { channelId });
+};
+
+// Leave a channel
+export const leaveChannel = (channelId: number) => {
+  return sendWebSocketMessage('leave-channel', { channelId });
+};
+
+// Send a chat message
+export const sendChatMessage = (channelId: number, content: string) => {
+  return sendWebSocketMessage('send-message', { channelId, content });
+};
+
+// Cleanup WebSocket
+export const cleanupWebSocket = (): void => {
+  if (wsInstance) {
+    wsInstance.close();
+    wsInstance = null;
+  }
+  isConnecting = false;
+  reconnectAttempts = 0;
+  messageHandlers.clear();
+  onConnectCallback = null;
+  onDisconnectCallback = null;
+};
+
+// Check if connected
+export const isConnected = (): boolean => {
+  return wsInstance?.readyState === WebSocket.OPEN;
+};
+
+// Legacy compatibility with socket.io interface
+export const getSocket = () => {
+  return {
+    connected: wsInstance?.readyState === WebSocket.OPEN,
+    id: 'ws-' + Date.now(),
+    on: (event: string, callback: (data?: any) => void) => {
+      if (event === 'connect') {
+        if (wsInstance?.readyState === WebSocket.OPEN) {
+          callback({});
+        }
+        onConnect(() => callback({}));
+        return () => {};
+      } else if (event === 'disconnect') {
+        onDisconnect(() => callback({}));
+        return () => {};
+      } else {
+        return onWebSocketMessage(event, callback);
+      }
+    },
+    off: (event: string, callback?: (data?: any) => void) => {
+      // Handler removal is handled by the returned unsubscribe function
+    },
+    once: (event: string, callback: (data?: any) => void) => {
+      const unsubscribe = onWebSocketMessage(event, (data) => {
+        callback(data);
+        unsubscribe();
+      });
+    },
+    emit: (event: string, data?: any) => {
+      return sendWebSocketMessage(event, data);
+    },
+    connect: () => {
+      connectWebSocket().catch(console.error);
+    },
+    disconnect: () => {
+      cleanupWebSocket();
+    },
+    hasListeners: () => messageHandlers.size > 0,
+    io: {}
+  } as any;
+};
+
+export const cleanupSocket = cleanupWebSocket;

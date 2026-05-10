@@ -1,662 +1,579 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useChatStore } from '@/store/useChatStore';
-import { useSocket } from '@/hooks/useSocket';
 import { config } from '@/lib/config';
+import {
+  onWebSocketMessage,
+  sendWebSocketMessage
+} from '@/lib/socket';
 
 interface VoiceRoomProps {
   currentChannel: any;
   onBack: () => void;
 }
 
-const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel, onBack }) => {
-  const {
-    isInCall,
-    isJoiningCall,
-    joinCall,
-    leaveCall,
-    toggleMute,
-    setLocalStream,
-    currentUser,
-    remoteStreams,
-    removeRemoteStream,
-    addRemoteStream,
-    updateChannelCallStatus,
-    updateMemberCallStatus
-  } = useChatStore();
-  
-  const [echoEnabled, setEchoEnabled] = useState(true);
+interface VoiceParticipant {
+  userId: number;
+  username: string;
+  avatarUrl: string;
+  isSpeaking: boolean;
+  stream?: MediaStream;
+}
+
+const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
+  const { currentUser, isInCall, joinCall, leaveCall, setLocalStream } = useChatStore();
+
+  const [participants, setParticipants] = useState<Map<number, VoiceParticipant>>(new Map());
   const [isMuted, setIsMuted] = useState(false);
-  const [remoteVolume, setRemoteVolume] = useState(0);
-  const [remoteVolumeControl, setRemoteVolumeControl] = useState(() => {
-    const savedVolume = localStorage.getItem('remoteVolume');
-    return savedVolume ? parseFloat(savedVolume) : 1.0;
-  });
-  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
-  
+  const [isConnecting, setIsConnecting] = useState(false);
+
   const localStreamRef = useRef<MediaStream | null>(null);
-  const localAudioRef = useRef<HTMLAudioElement>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
-  const analyserIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const hideVolumeSliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
   const peerConnections = useRef<Map<number, RTCPeerConnection>>(new Map());
-  const iceCandidateQueues = useRef<Map<number, RTCIceCandidate[]>>(new Map());
-  
-  const {
-    isConnected,
-    emit,
-    on
-  } = useSocket({
-    url: config.api.socketUrl,
-    autoConnect: true
-  });
-  
-  const initAudioAnalyser = useCallback((stream: MediaStream) => {
+  const audioElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
+  const speakingCheckIntervals = useRef<Map<number, NodeJS.Timeout>>(new Map());
+  const analyserNodes = useRef<Map<number, AnalyserNode>>(new Map());
+  const pendingIceCandidates = useRef<Map<number, RTCIceCandidateInit[]>>(new Map());
+  const joinedRef = useRef(false);
+
+  // Setup speaking detection for a participant
+  const setupSpeakingDetection = useCallback((userId: number, stream: MediaStream) => {
     try {
-      cleanupAudioAnalyser();
-      
+      // Stop any existing check
+      const existingInterval = speakingCheckIntervals.current.get(userId);
+      if (existingInterval) {
+        clearInterval(existingInterval);
+      }
+
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      audioContextRef.current = audioContext;
-      
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
-      analyserRef.current = analyser;
-      
-      const gainNode = audioContext.createGain();
-      gainNode.gain.value = remoteVolumeControl;
-      gainNodeRef.current = gainNode;
-      
+
       const source = audioContext.createMediaStreamSource(stream);
-      source.connect(gainNode);
-      gainNode.connect(analyser);
-      analyser.connect(audioContext.destination);
-      
-      startAnalysingVolume();
-    } catch (error) {
-      console.error('初始化音频分析器失败:', error);
-    }
-  }, [remoteVolumeControl]);
-  
-  const startAnalysingVolume = useCallback(() => {
-    if (!analyserRef.current) return;
-    
-    const analyser = analyserRef.current;
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    
-    if (analyserIntervalRef.current) {
-      clearInterval(analyserIntervalRef.current);
-    }
-    
-    analyserIntervalRef.current = setInterval(() => {
-      analyser.getByteTimeDomainData(dataArray);
-      
-      let sum = 0;
-      for (let i = 0; i < bufferLength; i++) {
-        const value = (dataArray[i] - 128) / 128;
-        sum += value * value;
-      }
-      const rms = Math.sqrt(sum / bufferLength);
-      
-      setRemoteVolume(rms);
-    }, 100);
-  }, []);
-  
-  const cleanupAudioAnalyser = useCallback(() => {
-    if (analyserIntervalRef.current) {
-      clearInterval(analyserIntervalRef.current);
-      analyserIntervalRef.current = null;
-    }
-    
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-    
-    analyserRef.current = null;
-    gainNodeRef.current = null;
-    setRemoteVolume(0);
-  }, []);
-  
-  const cleanupPeerConnection = useCallback((userId: number) => {
-    const peerConnection = peerConnections.current.get(userId);
-    if (peerConnection) {
-      try {
-        // 使用现代的 getSenders() 方法替代已废弃的 getLocalStreams()
-        const senders = peerConnection.getSenders();
-        senders.forEach(sender => {
-          if (sender.track) {
-            sender.track.stop();
+      source.connect(analyser);
+
+      analyserNodes.current.set(userId, analyser);
+
+      // Check speaking status every 100ms
+      const interval = setInterval(() => {
+        const currentAnalyser = analyserNodes.current.get(userId);
+        if (!currentAnalyser) return;
+
+        try {
+          const dataArray = new Uint8Array(currentAnalyser.frequencyBinCount);
+          currentAnalyser.getByteTimeDomainData(dataArray);
+
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            const value = (dataArray[i] - 128) / 128;
+            sum += value * value;
           }
+          const rms = Math.sqrt(sum / dataArray.length);
+
+          const isSpeaking = rms > 0.02;
+
+          setParticipants(prev => {
+            const newMap = new Map(prev);
+            const participant = newMap.get(userId);
+            if (participant && participant.isSpeaking !== isSpeaking) {
+              newMap.set(userId, { ...participant, isSpeaking });
+            }
+            return newMap;
+          });
+        } catch {
+          // Ignore errors during analysis
+        }
+      }, 100);
+
+      speakingCheckIntervals.current.set(userId, interval);
+    } catch (error) {
+      console.error('Failed to setup speaking detection:', error);
+    }
+  }, []);
+
+  // Cleanup speaking detection
+  const cleanupSpeakingDetection = useCallback((userId: number) => {
+    const interval = speakingCheckIntervals.current.get(userId);
+    if (interval) {
+      clearInterval(interval);
+      speakingCheckIntervals.current.delete(userId);
+    }
+    analyserNodes.current.delete(userId);
+  }, []);
+
+  // Initialize WebRTC peer connection
+  const createPeerConnection = useCallback((userId: number): RTCPeerConnection => {
+    const pc = new RTCPeerConnection({
+      iceServers: config.webrtc.iceServers
+    });
+
+    pc.ontrack = (event) => {
+      if (event.streams && event.streams.length > 0) {
+        const stream = event.streams[0];
+
+        // Update participant with stream
+        setParticipants(prev => {
+          const newMap = new Map(prev);
+          const participant = newMap.get(userId);
+          if (participant) {
+            newMap.set(userId, { ...participant, stream });
+          }
+          return newMap;
         });
-        
-        peerConnection.close();
-      } catch (error) {
-        console.error('关闭对等连接失败:', error);
+
+        // Play audio
+        const audio = audioElementsRef.current.get(userId);
+        if (audio) {
+          audio.srcObject = stream;
+          audio.play().catch(() => {});
+        }
+
+        // Setup speaking detection
+        setupSpeakingDetection(userId, stream);
       }
-      peerConnections.current.delete(userId);
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendWebSocketMessage('voice:signal', {
+          channelId: currentChannel?.id,
+          signalType: 'ice-candidate',
+          candidate: event.candidate,
+          targetUserId: userId
+        });
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[Voice] ICE state with user ${userId}:`, pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        console.warn(`[Voice] ICE failed with user ${userId}. 跨网络通话需要 TURN 服务器,请配置 NEXT_PUBLIC_TURN_URL/USERNAME/CREDENTIAL。`);
+        // 触发 ICE 重启
+        try {
+          pc.restartIce();
+        } catch {}
+      }
+    };
+
+    peerConnections.current.set(userId, pc);
+    return pc;
+  }, [currentChannel, setupSpeakingDetection]);
+
+  // Helper: 创建 pc 并把本地音轨加入
+  const createPeerWithTracks = useCallback((userId: number): RTCPeerConnection => {
+    const pc = createPeerConnection(userId);
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        pc.addTrack(track, localStreamRef.current!);
+      });
     }
-    
-    iceCandidateQueues.current.delete(userId);
-    removeRemoteStream(userId);
-    
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = null;
-    }
-  }, [removeRemoteStream]);
-  
-  const handleJoinCall = useCallback(async () => {
-    if (!currentChannel || currentChannel.type !== 'voice' || !currentUser) {
-      return;
-    }
-    
+    return pc;
+  }, [createPeerConnection]);
+
+  // Helper: 给某个用户发起 offer
+  const sendOfferTo = useCallback(async (userId: number) => {
+    if (!currentChannel) return;
+    console.log('[Voice] sendOfferTo:', userId);
+    const pc = createPeerWithTracks(userId);
     try {
-      joinCall();
-      emit('join-channel', currentChannel.id);
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      console.log('[Voice] sending offer to', userId, offer.type);
+      sendWebSocketMessage('voice:signal', {
+        channelId: currentChannel.id,
+        signalType: 'offer',
+        offer,
+        targetUserId: userId
+      });
+    } catch (e) {
+      console.error('[Voice] sendOfferTo failed:', e);
+    }
+  }, [currentChannel, createPeerWithTracks]);
+
+  // Join voice call
+  const handleJoinCall = useCallback(async () => {
+    if (!currentChannel || currentChannel.type !== 'voice' || !currentUser) return;
+    if (joinedRef.current) return; // 防止 StrictMode 重复
+    joinedRef.current = true;
+
+    setIsConnecting(true);
+
+    try {
+      // Get local audio stream
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+
       localStreamRef.current = stream;
-      
-      if (localAudioRef.current) {
-        localAudioRef.current.srcObject = stream;
-        localAudioRef.current.muted = !echoEnabled;
-      }
-      
-      emit('voice:join', {
+      setLocalStream(stream);
+
+      // Add self to participants
+      setParticipants(prev => {
+        const newMap = new Map(prev);
+        newMap.set(currentUser.id, {
+          userId: currentUser.id,
+          username: currentUser.username || 'You',
+          avatarUrl: currentUser.avatarUrl || '',
+          isSpeaking: false,
+          stream
+        });
+        return newMap;
+      });
+
+      // Setup speaking detection for self
+      setupSpeakingDetection(currentUser.id, stream);
+
+      // Join voice channel via WebSocket
+      sendWebSocketMessage('voice:join', {
         channelId: currentChannel.id,
         userId: currentUser.id
       });
-      
-      setLocalStream(stream);
+
+      joinCall();
+      setIsConnecting(false);
     } catch (error) {
-      leaveCall();
+      console.error('Failed to join voice call:', error);
+      joinedRef.current = false;
+      setIsConnecting(false);
     }
-  }, [currentChannel, currentUser, joinCall, leaveCall, setLocalStream, echoEnabled, emit]);
-  
+  }, [currentChannel, currentUser, joinCall, setLocalStream, setupSpeakingDetection]);
+
+  // Leave voice call
   const handleLeaveCall = useCallback(() => {
-    if (!currentChannel || currentChannel.type !== 'voice' || !currentUser) return;
-    
+    if (!currentChannel || !currentUser) return;
+
+    // Stop local stream
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
     }
-    
-    emit('voice:leave', {
+
+    // Close all peer connections
+    peerConnections.current.forEach((pc, userId) => {
+      pc.close();
+      cleanupSpeakingDetection(userId);
+    });
+    peerConnections.current.clear();
+    pendingIceCandidates.current.clear();
+    joinedRef.current = false;
+
+    // Leave voice channel via WebSocket
+    sendWebSocketMessage('voice:leave', {
       channelId: currentChannel.id,
       userId: currentUser.id
     });
-    
+
+    setParticipants(new Map());
     leaveCall();
-    cleanupAudioAnalyser();
-    
-    peerConnections.current.forEach((_, userId) => {
-      cleanupPeerConnection(userId);
-    });
-    peerConnections.current.clear();
-    iceCandidateQueues.current.clear();
-  }, [currentChannel, currentUser, leaveCall, cleanupAudioAnalyser, cleanupPeerConnection, emit]);
-  
+  }, [currentChannel, currentUser, leaveCall, cleanupSpeakingDetection]);
+
+  // Toggle mute
   const handleToggleMute = useCallback(() => {
-    toggleMute();
-    const newIsMuted = !isMuted;
-    setIsMuted(newIsMuted);
-    
     if (localStreamRef.current) {
+      const newMuted = !isMuted;
       localStreamRef.current.getAudioTracks().forEach(track => {
-        track.enabled = !newIsMuted;
+        track.enabled = !newMuted;
       });
+      setIsMuted(newMuted);
     }
-  }, [isMuted, toggleMute]);
-  
-  const handleToggleEcho = useCallback(() => {
-    const newEchoEnabled = !echoEnabled;
-    setEchoEnabled(newEchoEnabled);
-    if (localAudioRef.current) {
-      localAudioRef.current.muted = !newEchoEnabled;
-    }
-  }, [echoEnabled]);
-  
-  const handleVolumeChange = useCallback((value: number) => {
-    const clampedValue = Math.max(0, Math.min(2.0, value));
-    setRemoteVolumeControl(clampedValue);
-    
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = clampedValue;
-    }
-    
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.volume = Math.min(1, clampedValue);
-    }
-    
-    localStorage.setItem('remoteVolume', clampedValue.toString());
-  }, []);
-  
+  }, [isMuted]);
+
+  // Auto-join when entering voice channel
   useEffect(() => {
-    if (remoteStreams && remoteStreams.size > 0) {
-      remoteStreams.forEach((stream, userId) => {
-        if (stream && remoteAudioRef.current) {
-          remoteAudioRef.current.srcObject = stream;
-          initAudioAnalyser(stream);
-        }
-      });
-    } else {
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = null;
-      }
-      cleanupAudioAnalyser();
+    if (currentChannel && currentChannel.type === 'voice' && !isInCall && !isConnecting) {
+      handleJoinCall();
     }
-  }, [remoteStreams, initAudioAnalyser, cleanupAudioAnalyser]);
-  
+
+    return () => {
+      if (isInCall) {
+        handleLeaveCall();
+      }
+    };
+  }, [currentChannel?.id]); // Only run when channel changes
+
+  // WebSocket event handlers
   useEffect(() => {
     if (!currentChannel || currentChannel.type !== 'voice') return;
-    
-    const handleVoiceUserJoined = async (data: any) => {
-      if (!currentUser || !data.userId || data.userId === currentUser.id) return;
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      localStreamRef.current = stream;
-      
-      const peerConnection = new RTCPeerConnection({
-        iceServers: config.webrtc.iceServers
-      });
-      
-      peerConnections.current.set(data.userId, peerConnection);
-      
-      if (stream) {
-        stream.getTracks().forEach(track => {
-          peerConnection.addTrack(track, stream);
-        });
-      }
-      
-      if (peerConnection) {
-              peerConnection.ontrack = (event) => {
-                if (event.streams && event.streams.length > 0) {
-                  const stream = event.streams[0];
-                  addRemoteStream(data.senderId, stream);
-                  
-                  if (remoteAudioRef.current) {
-                    remoteAudioRef.current.srcObject = stream;
-                    remoteAudioRef.current.muted = false;
-                    remoteAudioRef.current.volume = 1.0;
-                  }
-                }
-              };
-            }
-      
-      peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          emit('voice:signal', {
-            channelId: currentChannel?.id,
-            type: 'ice-candidate',
-            candidate: event.candidate,
-            senderId: currentUser?.id
+
+    const handleVoiceParticipants = async (data: any) => {
+      if (!currentUser || !Array.isArray(data.participants)) return;
+      console.log('[Voice] participants list:', data.participants.length, data.participants);
+      // 把房间已有的人都加入参与者列表,并主动发 offer
+      for (const p of data.participants) {
+        if (p.userId === currentUser.id) continue;
+        setParticipants(prev => {
+          if (prev.has(p.userId)) return prev;
+          const newMap = new Map(prev);
+          newMap.set(p.userId, {
+            userId: p.userId,
+            username: p.username || 'Unknown',
+            avatarUrl: p.avatarUrl || '',
+            isSpeaking: false
           });
-        }
-      };
-      
-      peerConnection.oniceconnectionstatechange = () => {
-        if (peerConnection.iceConnectionState === 'failed' || peerConnection.iceConnectionState === 'disconnected') {
-          setTimeout(() => {
-            if (peerConnection.iceConnectionState !== 'connected' && peerConnection.iceConnectionState !== 'completed') {
-              if (currentUser && currentChannel) {
-                peerConnection.createOffer().then(offer => {
-                  return peerConnection.setLocalDescription(offer);
-                }).then(() => {
-                  emit('voice:signal', {
-                    channelId: currentChannel?.id,
-                    type: 'offer',
-                    offer: peerConnection.localDescription,
-                    senderId: currentUser?.id
-                  });
-                }).catch(() => {});
-              }
-            }
-          }, 2000);
-        }
-      };
-      
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      
-      emit('voice:signal', {
-        channelId: currentChannel?.id,
-        type: 'offer',
-        offer: offer,
-        senderId: currentUser?.id
+          return newMap;
+        });
+        await sendOfferTo(p.userId);
+      }
+    };
+
+    const handleVoiceUserJoined = async (data: any) => {
+      if (!currentUser || data.userId === currentUser.id) return;
+      console.log('[Voice] user-joined:', data.userId, data.username);
+
+      // 只把新人加入参与者列表(等新人给自己发 offer)
+      setParticipants(prev => {
+        const newMap = new Map(prev);
+        newMap.set(data.userId, {
+          userId: data.userId,
+          username: data.username || 'Unknown',
+          avatarUrl: data.avatarUrl || '',
+          isSpeaking: false
+        });
+        return newMap;
       });
     };
-    
+
     const handleVoiceUserLeft = (data: any) => {
       if (data.userId) {
-        cleanupPeerConnection(data.userId);
+        // Remove participant
+        setParticipants(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(data.userId);
+          return newMap;
+        });
+
+        // Cleanup peer connection
+        const pc = peerConnections.current.get(data.userId);
+        if (pc) {
+          pc.close();
+          peerConnections.current.delete(data.userId);
+        }
+        pendingIceCandidates.current.delete(data.userId);
+        cleanupSpeakingDetection(data.userId);
       }
     };
-    
+
     const handleVoiceSignal = async (data: any) => {
-      if (!currentUser || !data || !data.senderId) return;
-      
+      if (!currentUser || !data.senderId) return;
+      // 只处理发给自己的信令
+      if (data.targetUserId && data.targetUserId !== currentUser.id) return;
+      if (data.senderId === currentUser.id) return;
+
       try {
-        let peerConnection = peerConnections.current.get(data.senderId);
-        
-        if (data.type === 'offer') {
-          if (!peerConnection) {
-            peerConnection = new RTCPeerConnection({
-              iceServers: config.webrtc.iceServers
+        let pc = peerConnections.current.get(data.senderId);
+        const sigType = data.signalType || data.type;
+
+        if (sigType === 'offer') {
+          // 收到 offer:确保参与者条目存在
+          setParticipants(prev => {
+            if (prev.has(data.senderId)) return prev;
+            const newMap = new Map(prev);
+            newMap.set(data.senderId, {
+              userId: data.senderId,
+              username: data.username || 'Unknown',
+              avatarUrl: data.avatarUrl || '',
+              isSpeaking: false
             });
-            
-            peerConnections.current.set(data.senderId, peerConnection);
-            
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            localStreamRef.current = stream;
-            
-            if (stream && peerConnection) {
-              const pc = peerConnection!;
-              stream.getTracks().forEach(track => {
-                pc.addTrack(track, stream);
-              });
-              
-              pc.ontrack = (event) => {
-                if (event.streams && event.streams.length > 0) {
-                  const stream = event.streams[0];
-                  addRemoteStream(data.senderId, stream);
-                  
-                  if (remoteAudioRef.current) {
-                    remoteAudioRef.current.srcObject = stream;
-                    remoteAudioRef.current.muted = false;
-                    remoteAudioRef.current.volume = 1.0;
-                    remoteAudioRef.current.play().catch(error => {
-                      console.error('播放远程音频失败:', error);
-                    });
-                  }
-                }
-              };
-              
-              pc.onicecandidate = (event) => {
-                if (event.candidate) {
-                  emit('voice:signal', {
-                    channelId: currentChannel?.id,
-                    type: 'ice-candidate',
-                    candidate: event.candidate,
-                    senderId: currentUser?.id
-                  });
-                }
-              };
-              
-              if (data.offer) {
-                await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-                
-                const queuedCandidates = iceCandidateQueues.current.get(data.senderId);
-                if (queuedCandidates && queuedCandidates.length > 0) {
-                  for (const candidate of queuedCandidates) {
-                    try {
-                      await pc.addIceCandidate(candidate);
-                    } catch (error) {
-                      console.error('处理队列中的ICE候选失败:', error);
-                    }
-                  }
-                  iceCandidateQueues.current.set(data.senderId, []);
-                }
-                
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                
-                emit('voice:signal', {
-                  channelId: currentChannel?.id,
-                  type: 'answer',
-                  answer: answer,
-                  senderId: currentUser?.id
-                });
+            return newMap;
+          });
+
+          // 如已有旧连接,先关掉
+          if (pc) {
+            pc.close();
+            peerConnections.current.delete(data.senderId);
+          }
+          pc = createPeerWithTracks(data.senderId);
+
+          await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+
+          // 应用所有缓冲的 ICE candidates
+          const pending = pendingIceCandidates.current.get(data.senderId);
+          if (pending) {
+            for (const c of pending) {
+              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+            }
+            pendingIceCandidates.current.delete(data.senderId);
+          }
+
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+
+          sendWebSocketMessage('voice:signal', {
+            channelId: currentChannel.id,
+            signalType: 'answer',
+            answer,
+            targetUserId: data.senderId
+          });
+        } else if (sigType === 'answer' && pc) {
+          if (pc.signalingState === 'have-local-offer') {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            const pending = pendingIceCandidates.current.get(data.senderId);
+            if (pending) {
+              for (const c of pending) {
+                try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
               }
+              pendingIceCandidates.current.delete(data.senderId);
             }
           }
-        } else if (data.type === 'answer') {
-          if (peerConnection && peerConnection.signalingState === 'have-local-offer' && data.answer) {
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-            
-            const queuedCandidates = iceCandidateQueues.current.get(data.senderId);
-            if (queuedCandidates && queuedCandidates.length > 0) {
-              for (const candidate of queuedCandidates) {
-                try {
-                  await peerConnection.addIceCandidate(candidate);
-                } catch (error) {
-                  console.error('处理队列中的ICE候选失败:', error);
-                }
-              }
-              iceCandidateQueues.current.set(data.senderId, []);
-            }
-          }
-        } else if (data.type === 'ice-candidate') {
-          if (peerConnection && data.candidate) {
-            if (peerConnection.remoteDescription) {
-              try {
-                await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-              } catch {
-                // 忽略ICE候选添加失败
-              }
-            } else {
-              if (!iceCandidateQueues.current.has(data.senderId)) {
-                iceCandidateQueues.current.set(data.senderId, []);
-              }
-              try {
-                const candidate = new RTCIceCandidate(data.candidate);
-                iceCandidateQueues.current.get(data.senderId)?.push(candidate);
-              } catch {
-                // 忽略ICE候选创建失败
-              }
-            }
+        } else if (sigType === 'ice-candidate') {
+          if (pc && pc.remoteDescription) {
+            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+          } else {
+            // 远端描述还没设置,先缓冲
+            const arr = pendingIceCandidates.current.get(data.senderId) || [];
+            arr.push(data.candidate);
+            pendingIceCandidates.current.set(data.senderId, arr);
           }
         }
-      } catch {
-        // 忽略WebRTC错误
+      } catch (error) {
+        console.error('Error handling voice signal:', error);
       }
     };
-    
-    const handleVoiceStatusUpdated = (data: any) => {
-      if (data.channelId && data.isInCall !== undefined && data.callMembers !== undefined) {
-        updateChannelCallStatus(data.channelId, data.isInCall, data.callMembers);
-      }
-      
-      if (data.userId !== undefined && data.isInCall !== undefined) {
-        updateMemberCallStatus(data.userId, data.isInCall);
-      }
-    };
-    
-    const unsubscribeVoiceUserJoined = on('voice:user-joined', handleVoiceUserJoined);
-    const unsubscribeVoiceUserLeft = on('voice:user-left', handleVoiceUserLeft);
-    const unsubscribeVoiceSignal = on('voice:signal', handleVoiceSignal);
-    const unsubscribeVoiceStatusUpdated = on('voice:status-updated', handleVoiceStatusUpdated);
-    
+
+    const unsubParticipants = onWebSocketMessage('voice:participants', handleVoiceParticipants);
+    const unsubJoined = onWebSocketMessage('voice:user-joined', handleVoiceUserJoined);
+    const unsubLeft = onWebSocketMessage('voice:user-left', handleVoiceUserLeft);
+    const unsubSignal = onWebSocketMessage('voice:signal', handleVoiceSignal);
+
     return () => {
-      unsubscribeVoiceUserJoined();
-      unsubscribeVoiceUserLeft();
-      unsubscribeVoiceSignal();
-      unsubscribeVoiceStatusUpdated();
-      
-      peerConnections.current.forEach((_, userId) => {
-        cleanupPeerConnection(userId);
-      });
-      peerConnections.current.clear();
-      iceCandidateQueues.current.clear();
-      
-      cleanupAudioAnalyser();
+      unsubParticipants();
+      unsubJoined();
+      unsubLeft();
+      unsubSignal();
     };
-  }, [currentChannel, currentUser, addRemoteStream, updateChannelCallStatus, updateMemberCallStatus, cleanupPeerConnection, cleanupAudioAnalyser, emit, on]);
-  
-  const VolumeControl = () => {
-    const [isDragging, setIsDragging] = useState(false);
-    
-    const handleMouseEnter = () => {
-      if (hideVolumeSliderTimeoutRef.current) {
-        clearTimeout(hideVolumeSliderTimeoutRef.current);
-        hideVolumeSliderTimeoutRef.current = null;
-      }
-      setShowVolumeSlider(true);
-    };
-    
-    const handleMouseLeave = () => {
-      if (!isDragging) {
-        hideVolumeSliderTimeoutRef.current = setTimeout(() => {
-          setShowVolumeSlider(false);
-          hideVolumeSliderTimeoutRef.current = null;
-        }, 300);
-      }
-    };
-    
-    const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-      setIsDragging(true);
-      calculateVolume(e);
-    };
-    
-    const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-      if (isDragging) {
-        calculateVolume(e);
-      }
-    };
-    
-    const handleMouseUp = () => {
-      setIsDragging(false);
-      setTimeout(() => {
-        if (!isDragging) {
-          handleMouseLeave();
-        }
-      }, 100);
-    };
-    
-    const calculateVolume = (e: React.MouseEvent<HTMLDivElement>) => {
-      const volumeBar = e.currentTarget;
-      const rect = volumeBar.getBoundingClientRect();
-      const height = rect.height;
-      const bottom = rect.bottom;
-      const clientY = e.clientY;
-      
-      let volume = (bottom - clientY) / height;
-      volume = Math.max(0, Math.min(1, volume)) * 2;
-      
-      handleVolumeChange(volume);
-    };
-    
+  }, [currentChannel, currentUser, createPeerWithTracks, sendOfferTo, cleanupSpeakingDetection]);
+
+  // Render participant tile
+  const renderParticipant = (participant: VoiceParticipant) => {
+    const isSelf = participant.userId === currentUser?.id;
+
     return (
-      <div 
-        className="relative group"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+      <div
+        key={participant.userId}
+        className={`
+          relative w-24 h-24 rounded-xl overflow-hidden transition-all duration-200
+          ${participant.isSpeaking
+            ? 'ring-4 ring-green-500 shadow-lg shadow-green-500/30'
+            : 'ring-2 ring-zinc-700'
+          }
+          ${isSelf && !participant.isSpeaking ? 'ring-indigo-500' : ''}
+        `}
       >
-        <div className="flex flex-col items-center">
-          <button
-            className="p-3 bg-gray-700 hover:bg-gray-600 rounded-full transition-colors flex items-center justify-center transform hover:scale-105"
-            title="调整音量"
-            onClick={() => setShowVolumeSlider(!showVolumeSlider)}
-          >
-            🔊
-          </button>
-          
-          {showVolumeSlider && (
-            <div 
-              className="absolute bottom-full mb-1 z-50"
-              style={{
-                left: '50%',
-                transform: 'translateX(-50%)',
-                padding: '4px',
-                borderRadius: '8px'
-              }}
-            >
-              <div className="bg-gray-800 p-2 rounded-lg shadow-lg border border-gray-700">
-                <div
-                  className="relative w-3 h-24 rounded-lg bg-gray-700 cursor-pointer"
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  onMouseLeave={handleMouseUp}
-                >
-                  <div
-                    className="absolute bottom-0 left-0 right-0 bg-green-500 rounded-lg transition-all duration-100 ease-out"
-                    style={{
-                      height: `${(remoteVolumeControl / 2) * 100}%`
-                    }}
-                  />
-                  <div
-                    className="absolute left-1/2 transform -translate-x-1/2 w-4 h-4 rounded-full bg-blue-500 border-2 border-blue-700 shadow-md transition-all duration-100 ease-out"
-                    style={{
-                      bottom: `${(remoteVolumeControl / 2) * 100}%`,
-                      marginTop: '-4px'
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
+        {/* Hidden audio element for remote streams */}
+        {!isSelf && (
+          <audio
+            ref={(el) => {
+              if (el) {
+                audioElementsRef.current.set(participant.userId, el);
+                if (participant.stream) {
+                  el.srcObject = participant.stream;
+                  el.play().catch(() => {});
+                }
+              }
+            }}
+            autoPlay
+            className="hidden"
+          />
+        )}
+
+        {/* Avatar */}
+        <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+          {participant.avatarUrl ? (
+            <img
+              src={`${config.api.baseUrl}${participant.avatarUrl}`}
+              alt={participant.username}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <span className="text-3xl font-bold text-zinc-400">
+              {participant.username?.charAt(0)?.toUpperCase() || '?'}
+            </span>
           )}
         </div>
+
+        {/* Username overlay */}
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1">
+          <p className="text-xs text-white truncate text-center">
+            {isSelf ? 'You' : participant.username}
+          </p>
+        </div>
+
+        {/* Muted indicator */}
+        {isSelf && isMuted && (
+          <div className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
+            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+            </svg>
+          </div>
+        )}
+
+        {/* Speaking indicator */}
+        {participant.isSpeaking && (
+          <div className="absolute top-1 left-1 w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+        )}
       </div>
     );
   };
-  
+
   return (
     <div className="flex flex-col h-full">
-      <audio id="localAudio" ref={localAudioRef} autoPlay className="hidden" />
-      <audio id="remoteAudio" ref={remoteAudioRef} autoPlay className="hidden" />
-      
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        <div className="flex flex-col items-center justify-center h-full text-gray-500">
-          <div className="text-4xl mb-4">🎤</div>
-          <h3 className="text-lg font-medium mb-2">语音频道</h3>
-          <p className="text-center max-w-md">
-            这是一个语音频道，你可以通过下方的电话按钮加入通话
-          </p>
-        </div>
-      </div>
-      
-      <div className="p-4 border-t border-gray-700 bg-gray-800">
-        {isInCall ? (
-          <div className="flex flex-col items-center gap-3 w-full">
-            <div className="flex items-center gap-2 w-full max-w-md">
-              <span className="text-sm text-gray-400">远程音量:</span>
-              <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-green-500 rounded-full transition-all duration-100 ease-out"
-                  style={{ width: `${Math.min(remoteVolume * 100, 100)}%` }}
-                ></div>
-              </div>
-              <span className="text-sm text-gray-400 min-w-[40px] text-right">
-                {Math.round(remoteVolume * 100)}%
-              </span>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleToggleMute}
-                className={`p-3 ${isMuted ? 'bg-red-700' : 'bg-gray-700'} hover:${isMuted ? 'bg-red-600' : 'bg-gray-600'} rounded-full transition-colors flex items-center justify-center transform hover:scale-105`}
-                title={isMuted ? '取消静音' : '静音'}
-              >
-                {isMuted ? '🔇' : '🔊'}
-              </button>
-              <button
-                onClick={handleToggleEcho}
-                className="p-3 bg-gray-700 hover:bg-gray-600 rounded-full transition-colors flex items-center justify-center transform hover:scale-105"
-                title={echoEnabled ? '关闭本地回拨' : '开启本地回拨'}
-              >
-                {echoEnabled ? '🔊' : '🔇'}
-              </button>
-              <VolumeControl />
-              <button
-                onClick={handleLeaveCall}
-                className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-medium transition-colors transform hover:scale-105"
-              >
-                结束通话
-              </button>
-            </div>
+      {/* Participants Grid */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {participants.size > 0 ? (
+          <div className="grid grid-cols-4 gap-3">
+            {Array.from(participants.values()).map(renderParticipant)}
           </div>
         ) : (
+          <div className="flex flex-col items-center justify-center h-full text-zinc-500">
+            <div className="text-4xl mb-4">🎤</div>
+            <h3 className="text-lg font-medium mb-2">语音频道</h3>
+            <p className="text-center max-w-md">
+              {isConnecting ? '正在连接...' : '准备加入通话...'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Controls */}
+      <div className="p-4 border-t border-zinc-700 bg-zinc-800/50">
+        {isInCall ? (
           <div className="flex items-center justify-center gap-4">
             <button
-              onClick={handleJoinCall}
-              disabled={isJoiningCall}
-              className={`px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg font-medium transition-colors transform hover:scale-105 ${isJoiningCall ? 'opacity-50 cursor-not-allowed' : ''}`}
+              onClick={handleToggleMute}
+              className={`
+                p-3 rounded-full transition-all transform hover:scale-105
+                ${isMuted
+                  ? 'bg-red-600 hover:bg-red-700'
+                  : 'bg-zinc-700 hover:bg-zinc-600'
+                }
+              `}
+              title={isMuted ? '取消静音' : '静音'}
             >
-              {isJoiningCall ? '加入中...' : '📞 加入通话'}
+              {isMuted ? '🔇' : '🎤'}
+            </button>
+
+            <button
+              onClick={handleLeaveCall}
+              className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-medium transition-all transform hover:scale-105"
+            >
+              离开通话
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center">
+            <button
+              onClick={handleJoinCall}
+              disabled={isConnecting}
+              className={`
+                px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg font-medium transition-all transform hover:scale-105
+                ${isConnecting ? 'opacity-50 cursor-not-allowed' : ''}
+              `}
+            >
+              {isConnecting ? '连接中...' : '📞 加入通话'}
             </button>
           </div>
         )}

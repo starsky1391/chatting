@@ -5,15 +5,18 @@ interface User {
   id: number;
   username: string;
   avatar: string;
+  avatarUrl?: string;
   email: string;
-  status: 'online' | 'idle' | 'do-not-disturb' | 'offline';
+  isOnline: boolean;
   role: 'admin' | 'moderator' | 'member';
+  bio?: string;
 }
 
 interface Channel {
   id: number;
   name: string;
   type: 'text' | 'voice';
+  groupId?: number;
   isInCall?: boolean;
   callMembers?: number;
 }
@@ -33,7 +36,8 @@ interface Member {
   id: number;
   username: string;
   avatar: string;
-  status: 'online' | 'idle' | 'do-not-disturb' | 'offline';
+  avatarUrl?: string;
+  isOnline: boolean;
   role: 'admin' | 'moderator' | 'member';
   isInCall?: boolean;
 }
@@ -45,18 +49,20 @@ interface ChatState {
   login: (user: User, token: string) => void;
   logout: () => void;
   updateCurrentUser: (user: Partial<User>) => void;
-  
+
   // 频道相关
   channels: Channel[];
   currentChannel: Channel | null;
+  currentGroupId: number | null;
   setCurrentChannel: (channel: Channel | null) => void;
+  setCurrentGroupId: (groupId: number | null) => void;
   setChannels: (channels: Channel[]) => void;
   addChannel: (channel: Channel) => void;
   removeChannel: (channelId: number) => void;
   leaveChannel: (channelId: number) => void;
   joinChannel: (channel: Channel) => void;
   updateChannelCallStatus: (channelId: number, isInCall: boolean, callMembers: number) => void;
-  
+
   // 消息相关
   messages: Message[];
   addMessage: (message: Message) => void;
@@ -64,8 +70,10 @@ interface ChatState {
   
   // 成员相关
   members: Member[];
+  groupMembers: Member[];
   setMembers: (members: Member[]) => void;
-  updateMemberStatus: (memberId: number, status: Member['status']) => void;
+  setGroupMembers: (members: Member[]) => void;
+  updateMemberOnlineStatus: (memberId: number, isOnline: boolean) => void;
   updateMemberCallStatus: (memberId: number, isInCall: boolean) => void;
   
   // 语音通话相关
@@ -89,10 +97,13 @@ interface ChatState {
 
 // 创建 store
 export const useChatStore = create<ChatState>((set) => {
-  // 从localStorage获取用户信息
-  const savedUser = localStorage.getItem('user');
-  const currentUser = savedUser ? JSON.parse(savedUser) : null;
-  
+  // 从localStorage获取用户信息 (only in browser)
+  let currentUser: User | null = null;
+  if (typeof window !== 'undefined') {
+    const savedUser = localStorage.getItem('user');
+    currentUser = savedUser ? JSON.parse(savedUser) : null;
+  }
+
   return {
     // 用户信息
     currentUser,
@@ -137,7 +148,9 @@ export const useChatStore = create<ChatState>((set) => {
     // 频道相关
     channels: [],
     currentChannel: null,
+    currentGroupId: null,
     setCurrentChannel: (channel) => set({ currentChannel: channel }),
+    setCurrentGroupId: (groupId) => set({ currentGroupId: groupId }),
     setChannels: (channels) => set({ channels: Array.isArray(channels) ? channels : [] }),
     
     // 新增频道管理方法
@@ -199,13 +212,18 @@ export const useChatStore = create<ChatState>((set) => {
     
     // 成员相关
     members: [],
+    groupMembers: [],
     setMembers: (members) => set({ members }),
-    updateMemberStatus: (memberId, status) => set((state) => ({
+    setGroupMembers: (groupMembers) => set({ groupMembers }),
+    updateMemberOnlineStatus: (memberId, isOnline) => set((state) => ({
       members: state.members.map((member) =>
-        member.id === memberId ? { ...member, status } : member
+        member.id === memberId ? { ...member, isOnline } : member
+      ),
+      groupMembers: state.groupMembers.map((member) =>
+        member.id === memberId ? { ...member, isOnline } : member
       ),
     })),
-    
+
     // 更新成员通话状态
     updateMemberCallStatus: (memberId, isInCall) => set((state) => ({
       members: state.members.map((member) =>

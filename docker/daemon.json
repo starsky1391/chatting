@@ -1,0 +1,20 @@
+{
+  "registry-mirrors": [
+    "https://docker.1ms.run",
+    "https://docker.xuanyuan.me"
+  ],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m",
+    "max-file": "3"
+  },
+  "storage-driver": "overlay2",
+  "live-restore": true,
+  "default-ulimits": {
+    "nofile": {
+      "Name": "nofile",
+      "Hard": 65535,
+      "Soft": 65535
+    }
+  }
+}

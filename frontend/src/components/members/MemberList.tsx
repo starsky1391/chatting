@@ -1,84 +1,141 @@
 "use client";
-import React from 'react';
+import React, { useState } from 'react';
 import { useChatStore } from '../../store/useChatStore';
+import { config } from '@/lib/config';
 
 const MemberList: React.FC = () => {
-  const { members } = useChatStore();
+  const { members, groupMembers, currentGroupId, currentChannel } = useChatStore();
+  const [showGroupMembers, setShowGroupMembers] = useState(true);
+  const [showChannelMembers, setShowChannelMembers] = useState(true);
 
-  // 获取状态显示
-  const getStatusIndicator = (status: string) => {
-    switch (status) {
-      case 'online':
-        return 'bg-green-500';
-      case 'idle':
-        return 'bg-yellow-500';
-      case 'do-not-disturb':
-        return 'bg-red-500';
-      case 'offline':
-        return 'bg-gray-500';
+  const getRoleBadge = (role: string) => {
+    switch (role) {
+      case 'owner':
+        return { text: 'Owner', color: 'bg-amber-500/20 text-amber-400' };
+      case 'admin':
+        return { text: 'Admin', color: 'bg-purple-500/20 text-purple-400' };
+      case 'moderator':
+        return { text: 'Mod', color: 'bg-blue-500/20 text-blue-400' };
       default:
-        return 'bg-gray-500';
+        return null;
     }
   };
 
-  // 获取角色标签
-  const getRoleLabel = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return 'Admin';
-      case 'moderator':
-        return 'Mod';
-      case 'member':
-        return 'Member';
-      default:
-        return 'Member';
-    }
+  if (!currentGroupId) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="p-3 border-b border-zinc-700/50">
+          <h2 className="text-sm font-semibold text-zinc-400">Members</h2>
+        </div>
+        <div className="flex-1 flex items-center justify-center text-zinc-500">
+          <p className="text-xs">Select a server</p>
+        </div>
+      </div>
+    );
+  }
+
+  const getOnlineOffline = (memberList: typeof groupMembers) => {
+    const online = memberList.filter(m => m.isOnline);
+    const offline = memberList.filter(m => !m.isOnline);
+    return { online, offline };
+  };
+
+  const renderMemberList = (memberList: typeof groupMembers, title: string, isExpanded: boolean, toggleExpand: () => void) => {
+    if (memberList.length === 0) return null;
+
+    const { online, offline } = getOnlineOffline(memberList);
+
+    return (
+      <div className="mb-3">
+        <button
+          onClick={toggleExpand}
+          className="flex items-center justify-between w-full px-2 py-1 hover:bg-zinc-700/30 rounded transition-all"
+        >
+          <div className="flex items-center gap-1">
+            <svg
+              className={`w-3 h-3 text-zinc-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            <span className="text-xs font-semibold text-zinc-400 uppercase">{title}</span>
+          </div>
+          <span className="text-xs text-zinc-600">{memberList.length}</span>
+        </button>
+
+        {isExpanded && (
+          <div className="space-y-0.5 mt-1">
+            {online.length > 0 && (
+              <div className="mb-1">
+                <span className="text-xs text-zinc-500 px-2">Online — {online.length}</span>
+                {online.map((member) => renderMemberItem(member))}
+              </div>
+            )}
+
+            {offline.length > 0 && (
+              <div>
+                <span className="text-xs text-zinc-500 px-2">Offline — {offline.length}</span>
+                {offline.map((member) => renderMemberItem(member))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderMemberItem = (member: typeof groupMembers[0]) => {
+    const roleBadge = getRoleBadge(member.role);
+    return (
+      <div
+        key={member.id}
+        className="group px-2 py-1.5 rounded hover:bg-zinc-700/30 cursor-pointer transition-all"
+      >
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <div className="w-6 h-6 rounded bg-indigo-500/20 flex items-center justify-center text-xs font-bold overflow-hidden">
+              {member.avatarUrl ? (
+                <img src={`${config.api.baseUrl}${member.avatarUrl}`} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                member.avatar || member.username?.charAt(0)?.toUpperCase() || 'U'
+              )}
+            </div>
+            <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-zinc-800 ${member.isOnline ? 'bg-green-500' : 'bg-zinc-500'}`} />
+          </div>
+          <div className="flex-1 min-w-0 flex items-center gap-1">
+            <span className="text-xs text-zinc-300 truncate">{member.username}</span>
+            {roleBadge && (
+              <span className={`text-xs px-1 rounded ${roleBadge.color}`}>
+                {roleBadge.text}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="flex flex-col h-full">
-      {/* 成员列表标题 */}
-      <div className="p-4 border-b border-gray-700">
-        <h2 className="text-lg font-bold">Members ({members.length})</h2>
+      {/* Header */}
+      <div className="p-3 border-b border-zinc-700/50">
+        <h2 className="text-sm font-semibold text-zinc-400">Members</h2>
       </div>
 
-      {/* 成员列表 */}
+      {/* Member Lists */}
       <div className="flex-1 overflow-y-auto p-2">
-        <div className="space-y-1">
-          {members.map((member) => (
-            <div key={member.id} className="px-4 py-2 rounded-lg hover:bg-gray-700 cursor-pointer">
-              <div className="flex items-center gap-3">
-                {/* 头像、状态和通话状态 */}
-                <div className="relative">
-                  <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center font-bold text-sm">
-                    {member.avatar}
-                  </div>
-                  <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-gray-800 ${getStatusIndicator(member.status)}`}></div>
-                  {member.isInCall && (
-                    <div className="absolute top-0 right-0 w-3 h-3 rounded-full border-2 border-gray-800 bg-green-500 animate-pulse" title="正在通话中"></div>
-                  )}
-                </div>
-
-                {/* 成员信息 */}
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-200">{member.username}</span>
-                    {member.isInCall && (
-                      <span className="text-xs px-2 py-0.5 bg-green-600 text-white rounded-full animate-pulse">
-                        通话中
-                      </span>
-                    )}
-                    {member.role === 'admin' && (
-                      <span className="text-xs px-2 py-0.5 bg-purple-600 text-white rounded-full">
-                        {getRoleLabel(member.role)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        {currentChannel ? (
+          <>
+            {renderMemberList(groupMembers, 'Server Members', showGroupMembers, () => setShowGroupMembers(!showGroupMembers))}
+            {renderMemberList(members, 'In Channel', showChannelMembers, () => setShowChannelMembers(!showChannelMembers))}
+          </>
+        ) : (
+          <>
+            {renderMemberList(groupMembers, 'Server Members', showGroupMembers, () => setShowGroupMembers(!showGroupMembers))}
+          </>
+        )}
       </div>
     </div>
   );

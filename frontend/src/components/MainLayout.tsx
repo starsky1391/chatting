@@ -1,414 +1,421 @@
-"use client";  // 标记为客户端组件
-// Next.js 14的App Router要求客户端组件使用此指令
-// 客户端组件可以使用React Hooks和浏览器API
-
-// 导入React和必要的hooks
-import React, { useEffect, useState } from 'react';
-// 导入Tailwind CSS工具类，用于条件样式
+"use client";
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
-// 导入状态管理
 import { useChatStore } from '@/store/useChatStore';
-// 导入消息区域组件
 import MessageArea from './messages/MessageArea';
-// 导入频道列表组件
 import ChannelList from './sidebar/ChannelList';
-// 导入成员列表组件
 import MemberList from './members/MemberList';
-// 导入Socket.io钩子
-import { useSocket } from '../hooks/useSocket';
-// 导入配置
+import ServerList from './sidebar/ServerList';
 import { config } from '@/lib/config';
-// 导入API客户端
 import { api } from '../lib/api';
+import {
+  connectWebSocket,
+  joinChannel,
+  leaveChannel,
+  onWebSocketMessage,
+  cleanupWebSocket,
+  isConnected,
+  sendChatMessage,
+  sendWebSocketMessage
+} from '@/lib/socket';
 
-// 主布局组件
-// 应用的核心布局，包含侧边栏、消息区域和成员列表
-// 响应式设计，适配不同屏幕尺寸
 const MainLayout: React.FC = () => {
-  // 从状态管理获取数据
-  // useChatStore是自定义钩子，返回聊天相关状态
-  const {
-    currentUser,
-    currentChannel,
-    channels,
-    setCurrentChannel,
-    members,
-    messages,
-    setMessages,
-    addMessage,
-    setMembers,
-    setChannels
-  } = useChatStore();
+  const currentUser = useChatStore((state) => state.currentUser);
+  const currentChannel = useChatStore((state) => state.currentChannel);
+  const currentGroupId = useChatStore((state) => state.currentGroupId);
+  const channels = useChatStore((state) => state.channels);
+  const members = useChatStore((state) => state.members);
+  const setCurrentChannel = useChatStore((state) => state.setCurrentChannel);
+  const setCurrentGroupId = useChatStore((state) => state.setCurrentGroupId);
+  const setMessages = useChatStore((state) => state.setMessages);
+  const addMessage = useChatStore((state) => state.addMessage);
+  const setGroupMembers = useChatStore((state) => state.setGroupMembers);
+  const setMembers = useChatStore((state) => state.setMembers);
+  const setChannels = useChatStore((state) => state.setChannels);
+  const updateCurrentUser = useChatStore((state) => state.updateCurrentUser);
+  const updateMemberOnlineStatus = useChatStore((state) => state.updateMemberOnlineStatus);
 
-  // 状态管理：侧边栏显示状态
-  // 用于控制移动端侧边栏的展开和折叠
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  // 状态管理：成员侧边栏显示状态
-  const [isMemberSidebarOpen, setIsMemberSidebarOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [wsConnected, setWsConnected] = useState(false);
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 使用Socket.io钩子连接后端
-  // 后端Socket.io服务运行在配置的地址
-  const {
-    isConnected,
-    socketError,
-    connect,
-    emit,
-    on,
-    resetReconnectState
-  } = useSocket({
-    url: config.api.socketUrl, // 后端Socket.io服务地址
-    autoConnect: true // 自动连接
-  });
+  // Fetch current user info on mount
+  const fetchCurrentUser = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
 
-  // 检查socket错误
-  useEffect(() => {
-    if (socketError) {
-      console.error('Socket连接错误:', socketError);
-      // 尝试重新连接
-      setTimeout(() => {
-        connect();
-      }, 2000);
+      const response = await fetch(`${config.api.baseUrl}/api/user`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const user = data.data || data;
+        updateCurrentUser({
+          username: user.username,
+          avatar: user.avatar,
+          avatarUrl: user.avatarUrl,
+          isOnline: user.isOnline,
+          bio: user.bio
+        });
+        localStorage.setItem('user', JSON.stringify(user));
+      }
+    } catch (error) {
+      console.error('Failed to fetch user info:', error);
     }
-  }, [socketError, connect]);
+  }, [updateCurrentUser]);
 
-
-
-  // 监听Socket.io消息
-  // 当收到message:create事件时，添加消息到状态管理
   useEffect(() => {
-    // 监听新消息
-    const handleMessageCreate = (message: any) => {
-      // 检查消息是否已经存在，避免重复添加
-      const isDuplicate = messages.some(m => m.id === message.id);
-      if (!isDuplicate) {
-        // 添加isOwn属性，标识是否是当前用户发送的消息
-        const messageWithOwnership = {
-          ...message,
-          isOwn: message.sender?.id === (currentUser?.id || 0)
-        };
-        addMessage(messageWithOwnership);
+    fetchCurrentUser();
+  }, [fetchCurrentUser]);
+
+  // Handle page close - notify backend that user is leaving
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // The backend will mark user offline after 30 seconds of no heartbeat
+      // This is handled by the SyncOnlineStatus background task
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
+  // Heartbeat mechanism
+  const sendHeartbeat = useCallback(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    // HTTP heartbeat to update database and Redis
+    fetch(`${config.api.baseUrl}/api/user/heartbeat`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(res => {
+        if (!res.ok) {
+          console.warn('Heartbeat failed:', res.status);
+        }
+      })
+      .catch(err => console.warn('Heartbeat error:', err));
+
+    // WebSocket heartbeat
+    if (isConnected()) {
+      sendWebSocketMessage('heartbeat', {});
+    }
+  }, []);
+
+  useEffect(() => {
+    sendHeartbeat();
+    heartbeatIntervalRef.current = setInterval(sendHeartbeat, 25000);
+    return () => {
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
       }
     };
+  }, [sendHeartbeat]);
 
-    // 注册事件监听器
-    const unsubscribeMessageCreate = on('message:create', handleMessageCreate);
+  // Initialize WebSocket
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
 
-    // 组件卸载时移除监听
+    connectWebSocket()
+      .then(() => setWsConnected(true))
+      .catch((err) => console.error('WebSocket connection failed:', err));
+
+    return () => cleanupWebSocket();
+  }, []);
+
+  // WebSocket event handlers
+  useEffect(() => {
+    if (!wsConnected) return;
+
+    const unsubMembers = onWebSocketMessage('channel:members', (data) => {
+      if (data.members && Array.isArray(data.members)) {
+        const formattedMembers = data.members.map((m: any) => ({
+          id: m.userId || m.id,
+          username: m.username || 'Unknown',
+          avatar: m.avatar || '',
+          avatarUrl: m.avatarUrl || '',
+          isOnline: m.isOnline ?? true,
+          role: 'member' as const,
+          isInCall: false
+        }));
+        setMembers(formattedMembers);
+      }
+    });
+
+    const unsubJoined = onWebSocketMessage('user:joined', (data) => {
+      if (data.channelId === currentChannel?.id) {
+        const newMember = {
+          id: data.userId,
+          username: data.username,
+          avatar: '',
+          avatarUrl: data.avatarUrl || '',
+          isOnline: true,
+          role: 'member' as const,
+          isInCall: false
+        };
+        useChatStore.setState((state) => {
+          if (state.members.some((m) => m.id === data.userId)) return state;
+          return { members: [...state.members, newMember] };
+        });
+      }
+    });
+
+    const unsubLeft = onWebSocketMessage('user:left', (data) => {
+      if (data.channelId === currentChannel?.id) {
+        useChatStore.setState((state) => ({
+          members: state.members.filter((m) => m.id !== data.userId)
+        }));
+      }
+    });
+
+    const unsubMessage = onWebSocketMessage('message:create', (data) => {
+      if (data.channelId === currentChannel?.id) {
+        const newMessage = {
+          id: Date.now(),
+          content: { type: 'text', body: data.content },
+          sender: data.sender || { id: 0, username: 'Unknown' },
+          createdAt: new Date(),
+          isOwn: data.sender?.id === currentUser?.id
+        };
+        addMessage(newMessage);
+      }
+    });
+
+    const unsubOnline = onWebSocketMessage('user:online', (data) => {
+      if (data.userId) updateMemberOnlineStatus(data.userId, data.isOnline);
+    });
+
     return () => {
-      unsubscribeMessageCreate();
+      unsubMembers();
+      unsubJoined();
+      unsubLeft();
+      unsubMessage();
+      unsubOnline();
     };
-  }, [on, addMessage, messages, currentUser]);
+  }, [wsConnected, currentChannel, currentUser, setMembers, addMessage, updateMemberOnlineStatus]);
 
-  // 频道切换时加入/离开Socket.io房间
+  // Track previous channel
+  const [prevChannelId, setPrevChannelId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!wsConnected) return;
+    if (prevChannelId !== null) leaveChannel(prevChannelId);
+    if (currentChannel?.id) {
+      joinChannel(currentChannel.id);
+      setPrevChannelId(currentChannel.id);
+    }
+    return () => {
+      if (currentChannel?.id) leaveChannel(currentChannel.id);
+    };
+  }, [wsConnected, currentChannel?.id]);
+
+  // Fetch messages
   useEffect(() => {
     if (!currentChannel) return;
-
-    // 加入当前频道的房间
-    emit('join-channel', currentChannel.id);
-    
-    // 获取当前频道的消息
     const fetchMessages = async () => {
       try {
         const token = localStorage.getItem('token');
-        if (!token) {
-          console.error('No token found, please login again');
-          setMessages([]);
-          return;
-        }
-        
-        console.log('Fetching messages for channel:', currentChannel.id);
-        try {
-          const response = await fetch(`http://localhost:3001/api/channels/${currentChannel.id}/messages`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          
-          console.log('Messages fetch response:', response);
-          
-          if (response.ok) {
-            try {
-              const data = await response.json();
-              console.log('Messages data:', data);
-              // 确保data.data是数组，否则使用空数组
-              const messagesArray = Array.isArray(data.data) ? data.data : [];
-              // 为每条消息添加isOwn属性
-              const messagesWithOwnership = messagesArray.map((message: any) => ({
-                ...message,
-                isOwn: message.sender?.id === (currentUser?.id || 0)
-              }));
-              setMessages(messagesWithOwnership);
-              console.log('Messages set successfully:', messagesWithOwnership.length, 'messages');
-            } catch (jsonError) {
-              console.error('Error parsing messages response:', jsonError);
-              setMessages([]);
-            }
-          } else {
-            console.error(`Failed to fetch messages: ${response.status} ${response.statusText}`);
-            // 尝试获取错误详情
-            try {
-              const errorData = await response.json();
-              console.error('Messages error data:', errorData);
-            } catch (e) {
-              console.error('Failed to parse error response:', e);
-            }
-            setMessages([]);
-          }
-        } catch (networkError) {
-          console.error('Network error fetching messages:', networkError);
-          // 后端服务器未运行时的处理
-          console.log('后端服务器可能未运行，使用空消息列表');
+        if (!token) { setMessages([]); return; }
+
+        const response = await fetch(`${config.api.baseUrl}/api/channels/${currentChannel.id}/messages`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const messagesArray = Array.isArray(data.data) ? data.data : [];
+          const messagesWithOwnership = messagesArray.map((message: any) => ({
+            ...message,
+            isOwn: message.sender?.id === (currentUser?.id || 0)
+          }));
+          setMessages(messagesWithOwnership);
+        } else {
           setMessages([]);
         }
-      } catch (error) {
-        console.error('Unexpected error in fetchMessages:', error);
+      } catch {
         setMessages([]);
       }
     };
+    fetchMessages();
+  }, [currentChannel, setMessages, currentUser]);
 
-    // 获取当前频道的成员
+  // Fetch channel members
+  useEffect(() => {
+    if (!currentChannel?.id) { setMembers([]); return; }
+    const fetchChannelMembers = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const response = await fetch(`${config.api.baseUrl}/api/channels/${currentChannel.id}/active-members`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const membersData = Array.isArray(data.data) ? data.data : [];
+          const formattedMembers = membersData.map((m: any) => ({
+            id: m.userId || m.id,
+            username: m.username || 'Unknown',
+            avatar: m.avatar || '',
+            avatarUrl: m.avatarUrl || '',
+            isOnline: m.isOnline ?? true,
+            role: 'member' as const,
+            isInCall: false
+          }));
+          setMembers(formattedMembers);
+        }
+      } catch (error) {
+        console.error('Failed to fetch channel members:', error);
+      }
+    };
+    fetchChannelMembers();
+    const interval = setInterval(fetchChannelMembers, 30000);
+    return () => clearInterval(interval);
+  }, [currentChannel, setMembers]);
+
+  // Fetch group members
+  useEffect(() => {
     const fetchMembers = async () => {
       try {
         const token = localStorage.getItem('token');
-        if (!token) {
-          console.error('No token found, please login again');
-          setMembers([]);
-          return;
-        }
-        
-        console.log('Fetching members for channel:', currentChannel.id);
-        try {
-          const response = await fetch(`http://localhost:3001/api/channels/${currentChannel.id}/members`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
+        if (!token) { setGroupMembers([]); return; }
+
+        if (currentGroupId) {
+          const response = await fetch(`${config.api.baseUrl}/api/groups/${currentGroupId}/members`, {
+            headers: { 'Authorization': `Bearer ${token}` }
           });
-          
-          console.log('Members fetch response:', response);
-          
           if (response.ok) {
-            try {
-              const data = await response.json();
-              console.log('Members data:', data);
-              setMembers(Array.isArray(data.data) ? data.data : []);
-              console.log('Members set successfully:', Array.isArray(data.data) ? data.data.length : 0, 'members');
-            } catch (jsonError) {
-              console.error('Error parsing members response:', jsonError);
-              setMembers([]);
-            }
+            const data = await response.json();
+            setGroupMembers(Array.isArray(data.data) ? data.data : []);
           } else {
-            console.error(`Failed to fetch members: ${response.status} ${response.statusText}`);
-            // 尝试获取错误详情
-            try {
-              const errorData = await response.json();
-              console.error('Members error data:', errorData);
-            } catch (e) {
-              console.error('Failed to parse error response:', e);
-            }
-            setMembers([]);
+            setGroupMembers([]);
           }
-        } catch (networkError) {
-          console.error('Network error fetching members:', networkError);
-          // 后端服务器未运行时的处理
-          console.log('后端服务器可能未运行，使用空成员列表');
-          setMembers([]);
+        } else {
+          setGroupMembers([]);
         }
-      } catch (error) {
-        console.error('Unexpected error in fetchMembers:', error);
-        setMembers([]);
+      } catch {
+        setGroupMembers([]);
       }
     };
-
-    fetchMessages();
     fetchMembers();
 
-    // 清理函数：离开当前频道房间
-    return () => {
-      emit('leave-channel', currentChannel.id);
-    };
-  }, [currentChannel, emit, setMessages, setMembers]);
+    // Poll for member updates every 15 seconds to refresh online status
+    const interval = setInterval(fetchMembers, 15000);
+    return () => clearInterval(interval);
+  }, [currentGroupId, setGroupMembers]);
 
-  // 从后端API获取初始数据
+  // Fetch channels
   useEffect(() => {
-    // 获取频道列表
     const fetchChannels = async () => {
       try {
         const token = localStorage.getItem('token');
-        if (!token) {
-          setChannels([]);
-          return;
-        }
-        
-        try {
-          const data = await api.get('/api/channels');
-          setChannels(Array.isArray(data) ? data : []);
-        } catch (networkError) {
-          // 后端服务器未运行时的处理
-          // 设置默认频道数据，确保应用能正常显示
-          const defaultChannels = [
-            { id: 1, name: 'general', type: 'text' as const, description: 'General discussion channel for all topics' },
-            { id: 2, name: 'random', type: 'text' as const, description: 'Random topics and fun conversations' },
-            { id: 3, name: 'development', type: 'text' as const, description: 'Development and coding discussion' },
-            { id: 4, name: 'design', type: 'text' as const, description: 'Design and UI/UX discussion' },
-            { id: 5, name: 'help', type: 'text' as const, description: 'Get help with technical issues' },
-            { id: 6, name: 'announcements', type: 'text' as const, description: 'Important announcements and updates' },
-            { id: 7, name: 'voice-general', type: 'voice' as const, description: 'General voice channel for casual chat' },
-            { id: 8, name: 'voice-meeting', type: 'voice' as const, description: 'Voice channel for team meetings' },
-            { id: 9, name: 'voice-gaming', type: 'voice' as const, description: 'Voice channel for gaming sessions' }
-          ];
-          setChannels(defaultChannels);
-        }
-      } catch (error) {
+        if (!token) { setChannels([]); return; }
+
+        const data = await api.get('/api/channels');
+        setChannels(Array.isArray(data) ? data : []);
+        setIsLoading(false);
+      } catch {
         setChannels([]);
+        setIsLoading(false);
       }
     };
-
     fetchChannels();
   }, [setChannels]);
 
-  // 响应式设计：根据屏幕宽度自动调整布局
-  // useEffect钩子，当组件挂载或屏幕尺寸变化时执行
-  useEffect(() => {
-    // 处理窗口大小变化事件
-    const handleResize = () => {
-      // 屏幕宽度小于768px时，关闭侧边栏
-      // 768px是Tailwind的md断点
-      if (window.innerWidth < 768) {
-        setIsSidebarOpen(false);
-      }
-    };
-
-    // 事件监听：窗口大小变化
-    window.addEventListener('resize', handleResize);
-    // 清理函数：移除事件监听
-    return () => window.removeEventListener('resize', handleResize);
-  }, [setIsSidebarOpen]);
-
-  // 网络状态监控
-  useEffect(() => {
-    const handleOnline = () => {
-      // 网络恢复时重置重连状态并尝试重连
-      resetReconnectState();
-      connect();
-    };
-    
-    const handleOffline = () => {
-      // 网络离线时的处理
-    };
-    
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, [connect, resetReconnectState]);
-
-  // 处理发送消息
-  // 调用后端API发送消息
+  // Send message
   const handleSendMessage = async (content: string) => {
     try {
-      if (!currentChannel) {
-        console.error('No current channel selected');
-        return;
-      }
-      
-      // 调用后端API发送消息
-      const response = await fetch(`http://localhost:3001/api/channels/${currentChannel.id}/messages`, {
+      if (!currentChannel) return;
+      const channelId = Number(currentChannel.id);
+      if (!channelId || isNaN(channelId)) return;
+
+      const response = await fetch(`${config.api.baseUrl}/api/channels/${channelId}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}` // 发送JWT令牌
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({ content })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Failed to send message: ${response.status} ${response.statusText} ${JSON.stringify(errorData)}`);
+      if (response.ok && wsConnected && isConnected()) {
+        sendChatMessage(channelId, content);
       }
-
-      // 消息发送成功，后端会通过Socket.io广播，不需要手动添加
     } catch (error) {
       console.error('Error sending message:', error);
     }
   };
 
-  // 渲染主布局
+  // Get channel header title
+  const getHeaderTitle = () => {
+    if (currentChannel) {
+      const icon = currentChannel.type === 'voice' ? '🔊' : '#';
+      return `${icon} ${currentChannel.name}`;
+    }
+    return 'Select a channel';
+  };
+
   return (
-    <div className="flex h-screen bg-gray-900 text-white">
-      {/* 左侧频道列表 */}
-      {/* 移动端侧边栏使用固定定位，方便切换 */}
-      <aside 
-        className={cn(
-          'fixed inset-y-0 left-0 z-50 w-64 bg-gray-800 border-r border-gray-700 transition-transform duration-300 ease-in-out',
-          isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
-          'md:relative md:translate-x-0'
-        )}
-      >
-        {/* 频道列表组件 */}
-        <ChannelList />
+    <div className="flex h-screen bg-[#0f0f12] p-2 gap-2">
+      {/* Layer 1: Gutter - Server/Group icons (64px) */}
+      <aside className="w-[68px] flex flex-col gap-2">
+        <ServerList isLoading={isLoading} />
       </aside>
 
-      {/* 主内容区域 */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        {/* 消息区域组件 */}
-        <MessageArea 
-          currentChannel={currentChannel} 
-          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          onToggleMemberSidebar={() => setIsMemberSidebarOpen(!isMemberSidebarOpen)}
-          onSendMessage={handleSendMessage}
-          onBack={() => {
-            // 返回空白页，将currentChannel设置为null
-            setCurrentChannel(null);
-          }}
-        />
-      </main>
-
-      {/* 右侧成员列表 */}
-      {/* 响应式设计：大屏幕显示，小屏幕隐藏 */}
-      <aside className={cn(
-        'hidden lg:block w-64 bg-gray-800 border-l border-gray-700 overflow-y-auto',
-        isMemberSidebarOpen && 'fixed inset-y-0 right-0 z-50 transition-transform duration-300 ease-in-out translate-x-0'
-      )}>
-        {/* 成员列表组件 */}
-        <MemberList />
+      {/* Layer 2: Navigation - Channel list (240px) */}
+      <aside className="w-[240px] rounded-xl bg-[#1a1a2e]/80 overflow-hidden">
+        <ChannelList isLoading={isLoading} />
       </aside>
 
-      {/* 移动端侧边栏切换按钮 */}
-      {/* 小屏幕显示，用于切换频道侧边栏 */}
-      <button
-        className="fixed top-4 left-4 z-50 md:hidden bg-blue-600 p-2 rounded-md text-white hover:bg-blue-700 transition-colors"
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          {/* 汉堡菜单图标 */}
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-      </button>
+      {/* Layer 3: Main Stage + Layer 4: Context Sidebar */}
+      <div className="flex-1 flex flex-col gap-2">
+        {/* Shared Header spanning Main + Context */}
+        <header className="h-[48px] flex items-center justify-between px-4 rounded-xl bg-[#1a1a2e]/80 border-b border-zinc-700/50">
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-white">{getHeaderTitle()}</h2>
+            {currentChannel?.type === 'voice' && (
+              <span className="text-xs text-zinc-400">
+                {members.filter(m => m.isInCall).length} in call
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {currentChannel && (
+              <button className="p-2 rounded-lg hover:bg-zinc-700/50 text-zinc-400 transition-all">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </header>
 
-      {/* 移动端成员列表切换按钮 */}
-      <button
-        className="fixed top-4 right-4 z-50 md:hidden bg-blue-600 p-2 rounded-md text-white hover:bg-blue-700 transition-colors"
-        onClick={() => setIsMemberSidebarOpen(!isMemberSidebarOpen)}
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          {/* 用户图标 */}
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 1 1 0 5.292M15 21H3v-1a6 6 0 0 1 12 0v1zm0 0h6v-1a6 6 0 0 0-9-5.197M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" />
-        </svg>
-      </button>
+        {/* Main Content Area */}
+        <div className="flex-1 flex gap-2 min-h-0">
+          {/* Main Stage - Messages/Voice */}
+          <main className="flex-1 rounded-xl bg-[#1a1a2e]/80 overflow-hidden flex flex-col">
+            <MessageArea
+              currentChannel={currentChannel}
+              onSendMessage={handleSendMessage}
+              onBack={() => setCurrentChannel(null)}
+              isLoading={isLoading}
+              showHeader={false}
+            />
+          </main>
 
-      {/* Socket连接状态指示器 */}
-      <div className={cn(
-        'fixed bottom-4 right-4 px-3 py-1 rounded-full text-xs font-medium flex items-center gap-2',
-        isConnected ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
-      )}>
-        <div className={cn(
-          'w-2 h-2 rounded-full',
-          isConnected ? 'bg-white animate-pulse' : 'bg-white'
-        )} />
-        {isConnected ? 'Online' : 'Offline (Using default data)'}
+          {/* Layer 4: Context Sidebar - Members (240px) */}
+          {currentGroupId && (
+            <aside className="w-[240px] rounded-xl bg-[#1a1a2e]/80 overflow-hidden">
+              <MemberList />
+            </aside>
+          )}
+        </div>
       </div>
     </div>
   );
