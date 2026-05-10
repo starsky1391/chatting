@@ -1,10 +1,11 @@
 "use client";
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -32,7 +33,14 @@ export default function RegisterPage() {
       const data = await api.post<RegisterResponse>('/api/auth/register', { username, email, password });
       localStorage.setItem('token', data.accessToken);
       localStorage.setItem('user', JSON.stringify(data.user));
-      router.push(`/${data.user.id}`);
+
+      // Check for redirect parameter
+      const redirect = searchParams.get('redirect');
+      if (redirect) {
+        router.push(redirect);
+      } else {
+        router.push(`/${data.user.id}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');
     } finally {
@@ -185,7 +193,14 @@ export default function RegisterPage() {
               Already have an account?{' '}
               <button
                 type="button"
-                onClick={() => router.push('/login')}
+                onClick={() => {
+                  const redirect = searchParams.get('redirect');
+                  if (redirect) {
+                    router.push(`/login?redirect=${encodeURIComponent(redirect)}`);
+                  } else {
+                    router.push('/login');
+                  }
+                }}
                 className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
               >
                 Sign in
@@ -195,5 +210,17 @@ export default function RegisterPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#0f0f12] via-[#1a1a2e] to-[#16213e]">
+        <div className="text-white">Loading...</div>
+      </div>
+    }>
+      <RegisterForm />
+    </Suspense>
   );
 }
