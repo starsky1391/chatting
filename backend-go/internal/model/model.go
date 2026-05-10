@@ -37,10 +37,10 @@ type ChannelGroup struct {
 // Channel model with group support
 type Channel struct {
 	gorm.Model
-	Name        string `json:"name" gorm:"not null"`
+	Name        string `json:"name" gorm:"not null;uniqueIndex:idx_channel_group_name"`
 	Type        string `json:"type" gorm:"default:'text'"` // text or voice
 	Description string `json:"description"`
-	GroupID     uint   `json:"groupId"`
+	GroupID     uint   `json:"groupId" gorm:"uniqueIndex:idx_channel_group_name"`
 	Group       ChannelGroup `json:"group"`
 	Position    int    `json:"position"` // Order within group
 	CreatedBy   uint   `json:"createdBy"` // Creator user ID (0 = system created)
