@@ -198,6 +198,14 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
     setIsConnecting(true);
 
     try {
+      // Check if mediaDevices is available (requires HTTPS)
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('语音通话需要 HTTPS 安全连接。请使用 HTTPS 访问网站。');
+        setIsConnecting(false);
+        joinedRef.current = false;
+        return;
+      }
+
       // Get local audio stream
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
