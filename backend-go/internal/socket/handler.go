@@ -226,6 +226,19 @@ func HandleWebSocket(hub *Hub, c *gin.Context) {
 							"channelId": int(channelID),
 						},
 					}, userID)
+
+					// 广播到文本频道房间，让未加入通话的人也能看到
+					textRoomID := fmt.Sprintf("channel-%d", int(channelID))
+					hub.BroadcastToRoom(textRoomID, &Message{
+						Type: "voice:call-status",
+						Payload: map[string]interface{}{
+							"channelId": int(channelID),
+							"userId":    userID,
+							"username":  username,
+							"avatarUrl": avatarUrl,
+							"action":    "join",
+						},
+					}, "")
 				}
 
 			case "voice:leave":
@@ -238,6 +251,18 @@ func HandleWebSocket(hub *Hub, c *gin.Context) {
 						Payload: map[string]interface{}{
 							"userId":    userID,
 							"channelId": int(channelID),
+						},
+					}, "")
+
+					// 广播到文本频道房间，让未加入通话的人也能看到
+					textRoomID := fmt.Sprintf("channel-%d", int(channelID))
+					hub.BroadcastToRoom(textRoomID, &Message{
+						Type: "voice:call-status",
+						Payload: map[string]interface{}{
+							"channelId": int(channelID),
+							"userId":    userID,
+							"username":  username,
+							"action":    "leave",
 						},
 					}, "")
 				}

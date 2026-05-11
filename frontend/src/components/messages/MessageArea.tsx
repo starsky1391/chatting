@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import MessageBubble from './MessageBubble';
 import { useChatStore } from '../../store/useChatStore';
-import VoiceRoom from '../voice/VoiceRoom';
+import VoiceRoomLiveKit from '../voice/VoiceRoomLiveKit';
 import { config } from '@/lib/config';
 import { SkeletonMessageList } from '../ui/Skeleton';
 
@@ -134,7 +134,7 @@ const MessageArea: React.FC<MessageAreaProps> = ({
       {/* Content Area */}
       <div className="flex-1 overflow-hidden">
         {currentChannel.type === 'voice' ? (
-          <VoiceRoom currentChannel={currentChannel} onBack={handleBackClick} />
+          <VoiceRoomLiveKit currentChannel={currentChannel} />
         ) : (
           <div className="flex flex-col h-full">
             {/* Messages */}

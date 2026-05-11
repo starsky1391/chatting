@@ -237,7 +237,7 @@ export const useChatStore = create<ChatState>((set) => {
     localStream: null,
     remoteStreams: new Map(),
     
-    joinCall: () => set({ isJoiningCall: true }),
+    joinCall: () => set({ isInCall: true, isJoiningCall: false }),
     leaveCall: () => set({
       isInCall: false,
       isJoiningCall: false,

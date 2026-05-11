@@ -62,3 +62,9 @@ docker/rabbitmq/data
 # Docker
 .docker/
 docker-compose.override.yml
+
+# SSL certificates (should be generated locally)
+docker/nginx/ssl/
+
+# Codebuddy
+.codebuddy/

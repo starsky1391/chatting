@@ -1,0 +1,23 @@
+# LiveKit 配置文件
+# 文档: https://docs.livekit.io/home/self-hosting/config/
+
+port: 7880
+rtc:
+  # UDP 端口范围 (需要在防火墙开放)
+  port_range_start: 50000
+  port_range_end: 60000
+  # 本地开发使用 host.docker.internal 或留空自动检测
+  # node_ip 会自动检测容器 IP，客户端通过 nginx 代理连接
+
+# 房间配置
+room:
+  # 自动创建房间
+  auto_create: true
+  # 空房间超时 (秒)
+  empty_timeout: 300
+  # 最大参与者数
+  max_participants: 100
+
+# API 密钥 (生产环境请修改)
+keys:
+  devkey: secretsecretsecretsecretsecretsecret

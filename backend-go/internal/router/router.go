@@ -3,6 +3,7 @@ package router
 import (
 	"chat-backend/internal/config"
 	"chat-backend/internal/controller"
+	"chat-backend/internal/livekit"
 	"chat-backend/internal/middleware"
 	"chat-backend/internal/repository"
 	"chat-backend/internal/service"
@@ -36,6 +37,16 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 	authController := controller.NewAuthController(authService, cfg)
 	groupController := controller.NewChannelGroupController(groupService)
 	messageController := controller.NewMessageController(messageService)
+
+	// Initialize LiveKit
+	livekitConfig := livekit.Config{
+		Host:      "ws://livekit:7880", // Docker 内部地址
+		APIKey:    "devkey",
+		APISecret: "secretsecretsecretsecretsecretsecret",
+	}
+	livekitTokenGen := livekit.NewTokenGenerator(livekitConfig)
+	// LiveKit URL 从请求动态获取，不再硬编码
+	livekitController := controller.NewLiveKitController(livekitTokenGen, "")
 
 	// Initialize WebSocket hub
 	hub := socket.NewHub()
@@ -128,6 +139,13 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 			voice := protected.Group("/voice")
 			{
 				voice.GET("/:channelId/participants", groupController.GetVoiceParticipants)
+			}
+
+			// LiveKit routes
+			livekitGroup := protected.Group("/livekit")
+			{
+				livekitGroup.GET("/token", livekitController.GetToken)
+				livekitGroup.POST("/webhook", livekitController.Webhook)
 			}
 
 			// WebSocket route
