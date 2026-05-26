@@ -295,9 +295,34 @@ build_images() {
     print_step "Building Docker Images"
 
     print_msg "Building all services..." "$YELLOW"
-    docker compose build --no-cache
+    docker compose build --pull
 
     print_success "All images built successfully"
+}
+
+# Clean dangling images after rebuilds so storage doesn't keep growing.
+prune_docker_cache() {
+    print_step "Cleaning Docker Cache"
+
+    docker builder prune -f >/dev/null 2>&1 || true
+    docker image prune -f >/dev/null 2>&1 || true
+
+    print_success "Dangling images and build cache cleaned"
+}
+
+# Rebuild the stack from scratch without deleting persistent volumes.
+rebuild_services() {
+    print_step "Rebuilding Services"
+
+    print_msg "Stopping services and removing compose-managed images..." "$YELLOW"
+    docker compose down --rmi all --remove-orphans
+
+    prune_docker_cache
+
+    print_msg "Rebuilding and starting services..." "$YELLOW"
+    docker compose up --build -d --remove-orphans
+
+    print_success "Services rebuilt successfully"
 }
 
 # Start services
@@ -305,7 +330,7 @@ start_services() {
     print_step "Starting Services"
 
     print_msg "Starting all containers..." "$YELLOW"
-    docker compose up -d
+    docker compose up -d --remove-orphans
 
     print_msg "Waiting for services to be healthy..." "$YELLOW"
     sleep 30
@@ -415,12 +440,7 @@ update_app() {
     print_msg "Pulling latest changes..." "$YELLOW"
     git pull || true
 
-    print_msg "Rebuilding images..." "$YELLOW"
-    docker compose build --no-cache
-
-    print_msg "Restarting services..." "$YELLOW"
-    docker compose down
-    docker compose up -d
+    rebuild_services
 
     print_success "Application updated"
 }
@@ -465,9 +485,7 @@ show_menu() {
             configure_docker_mirror
             check_docker_service
             create_env_file
-            pull_images
-            build_images
-            start_services
+            rebuild_services
             health_check
             show_status
             ;;
@@ -475,9 +493,7 @@ show_menu() {
             check_root
             check_docker_service
             create_env_file
-            pull_images
-            build_images
-            start_services
+            rebuild_services
             health_check
             show_status
             ;;
@@ -536,9 +552,7 @@ if [ $# -gt 0 ]; then
             ;;
         deploy)
             create_env_file
-            pull_images
-            build_images
-            start_services
+            rebuild_services
             health_check
             show_status
             ;;

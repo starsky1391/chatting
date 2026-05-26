@@ -1,14 +1,16 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
-import React from 'react';
-import { ChevronLeft, ChevronRight, Users } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ChevronDown, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 import { useChatStore } from '../../store/useChatStore';
 import { config } from '@/lib/config';
 import { UserContextMenu, useUserContextMenu } from '@/components/user/UserContextMenu';
+import { getMemberRoleName, roleLabel, roleWeight, sortMembersByRole } from '@/lib/roles';
 
 const MemberList: React.FC = () => {
   const { members, groupMembers, currentGroupId, currentChannel, isMemberSidebarOpen, toggleMemberSidebar } = useChatStore();
   const { menu, openUserMenu, closeUserMenu } = useUserContextMenu();
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
   const getRoleBadge = (role: string) => {
     switch (role) {
@@ -18,19 +20,61 @@ const MemberList: React.FC = () => {
         return { text: 'Admin', color: 'bg-purple-500/20 text-purple-400' };
       case 'moderator':
         return { text: 'Mod', color: 'bg-blue-500/20 text-blue-400' };
+      case 'guest':
+        return { text: 'Guest', color: 'bg-teal-500/20 text-teal-400' };
       default:
         return null;
     }
   };
 
   const getOnlineOffline = (memberList: typeof groupMembers) => {
-    const online = memberList.filter((member) => member.isOnline);
-    const offline = memberList.filter((member) => !member.isOnline);
+    const sorted = sortMembersByRole(memberList);
+    const online = sorted.filter((member) => member.isOnline);
+    const offline = sorted.filter((member) => !member.isOnline);
     return { online, offline };
   };
 
+  const groupOnlineMembersByRole = (onlineMembers: typeof groupMembers) => {
+    const groups = new Map<string, typeof groupMembers>();
+    onlineMembers.forEach((member) => {
+      const roleName = getMemberRoleName(member);
+      const items = groups.get(roleName) || [];
+      items.push(member);
+      groups.set(roleName, items);
+    });
+
+    return Array.from(groups.entries())
+      .map(([roleName, items]) => ({
+        roleName,
+        items: sortMembersByRole(items),
+      }))
+      .sort((a, b) => roleWeight(a.roleName) - roleWeight(b.roleName));
+  };
+
+  const toggleSection = (sectionKey: string) => {
+    setCollapsedSections((prev) => ({
+      ...prev,
+      [sectionKey]: !prev[sectionKey],
+    }));
+  };
+
+  const renderSectionHeader = (sectionKey: string, label: string, count: number) => {
+    const isCollapsed = Boolean(collapsedSections[sectionKey]);
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSection(sectionKey)}
+        className="flex w-full items-center gap-1 px-2 py-1 text-left text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+        title={isCollapsed ? '展开该分组' : '折叠该分组'}
+      >
+        <ChevronDown className={`h-3 w-3 shrink-0 transition-transform ${isCollapsed ? '-rotate-90' : ''}`} />
+        <span className="truncate">{label} - {count}</span>
+      </button>
+    );
+  };
+
   const renderMemberItem = (member: typeof groupMembers[0]) => {
-    const roleBadge = getRoleBadge(member.role);
+    const roleBadge = getRoleBadge(getMemberRoleName(member));
     return (
       <div
         key={member.id}
@@ -63,6 +107,7 @@ const MemberList: React.FC = () => {
     if (memberList.length === 0) return null;
 
     const { online, offline } = getOnlineOffline(memberList);
+    const onlineGroups = groupOnlineMembersByRole(online);
 
     return (
       <div className="mb-3">
@@ -72,25 +117,45 @@ const MemberList: React.FC = () => {
         </div>
 
         <div className="mt-1 space-y-0.5">
-          {online.length > 0 && (
-            <div className="mb-1">
-              <span className="px-2 text-xs text-zinc-500">Online - {online.length}</span>
-              {online.map((member) => renderMemberItem(member))}
-            </div>
-          )}
+          {onlineGroups.map((group) => {
+            const sectionKey = `${title}:online:${group.roleName}`;
+            const isCollapsed = Boolean(collapsedSections[sectionKey]);
+            return (
+              <div key={group.roleName} className="mb-2">
+                {renderSectionHeader(sectionKey, roleLabel(group.roleName), group.items.length)}
+                {!isCollapsed && (
+                  <div className="mt-1 space-y-0.5">
+                    {group.items.map((member) => renderMemberItem(member))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
-          {offline.length > 0 && (
-            <div>
-              <span className="px-2 text-xs text-zinc-500">Offline - {offline.length}</span>
-              {offline.map((member) => renderMemberItem(member))}
-            </div>
-          )}
+          {offline.length > 0 && (() => {
+            const sectionKey = `${title}:offline`;
+            const isCollapsed = Boolean(collapsedSections[sectionKey]);
+            return (
+              <div>
+                {renderSectionHeader(sectionKey, 'Offline', offline.length)}
+                {!isCollapsed && (
+                  <div className="mt-1 space-y-0.5">
+                    {offline.map((member) => renderMemberItem(member))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
     );
   };
 
   const totalCount = currentChannel ? members.length : groupMembers.length;
+  const visibleMembers = useMemo(
+    () => sortMembersByRole(currentChannel ? members : groupMembers),
+    [currentChannel, members, groupMembers]
+  );
 
   if (!currentGroupId) {
     return (
@@ -104,7 +169,7 @@ const MemberList: React.FC = () => {
             type="button"
             onClick={toggleMemberSidebar}
             className="rounded-lg p-2 text-zinc-500 transition-all hover:bg-zinc-700/30 hover:text-white"
-            title={isMemberSidebarOpen ? '折叠成员栏' : '展开成员栏'}
+            title={isMemberSidebarOpen ? '折叠成员列表' : '展开成员列表'}
           >
             {isMemberSidebarOpen ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>
@@ -123,7 +188,7 @@ const MemberList: React.FC = () => {
           type="button"
           onClick={toggleMemberSidebar}
           className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-700/50 text-zinc-300 transition-all hover:bg-zinc-700 hover:text-white"
-          title="展开成员栏"
+          title="展开成员列表"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
@@ -152,7 +217,7 @@ const MemberList: React.FC = () => {
           type="button"
           onClick={toggleMemberSidebar}
           className="rounded-lg p-2 text-zinc-500 transition-all hover:bg-zinc-700/30 hover:text-white"
-          title="折叠成员栏"
+          title="折叠成员列表"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
@@ -161,12 +226,12 @@ const MemberList: React.FC = () => {
       <div className="no-scrollbar flex-1 overflow-y-auto p-2">
         {currentChannel ? (
           <>
-            {renderMemberList(groupMembers, 'Server Members')}
-            {renderMemberList(members, 'In Channel')}
+            {renderMemberList(sortMembersByRole(groupMembers), 'Group Members')}
+            {renderMemberList(sortMembersByRole(members), 'In Channel')}
           </>
         ) : (
           <>
-            {renderMemberList(groupMembers, 'Server Members')}
+            {renderMemberList(visibleMembers, 'Group Members')}
           </>
         )}
       </div>

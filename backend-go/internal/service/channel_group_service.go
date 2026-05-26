@@ -18,6 +18,7 @@ type ChannelGroupService struct {
 	groupRepo     *repository.ChannelGroupRepository
 	channelRepo   *repository.ChannelRepository
 	userGroupRepo *repository.UserGroupRepository
+	groupRoleRepo *repository.GroupRoleRepository
 	redis         *redis.RedisClient
 }
 
@@ -25,12 +26,14 @@ func NewChannelGroupService(
 	groupRepo *repository.ChannelGroupRepository,
 	channelRepo *repository.ChannelRepository,
 	userGroupRepo *repository.UserGroupRepository,
+	groupRoleRepo *repository.GroupRoleRepository,
 	redisClient *redis.RedisClient,
 ) *ChannelGroupService {
 	return &ChannelGroupService{
 		groupRepo:     groupRepo,
 		channelRepo:   channelRepo,
 		userGroupRepo: userGroupRepo,
+		groupRoleRepo: groupRoleRepo,
 		redis:         redisClient,
 	}
 }
@@ -63,6 +66,26 @@ type UpdateChannelInput struct {
 	MaxMembers  int    `json:"maxMembers" binding:"omitempty,min=0,max=100"`
 }
 
+type CreateGroupRoleInput struct {
+	Name        string `json:"name" binding:"required,min=1,max=32"`
+	Description string `json:"description"`
+	Color       string `json:"color"`
+	Position    int    `json:"position"`
+	IsDefault   bool   `json:"isDefault"`
+}
+
+type UpdateGroupRoleInput struct {
+	Name        string `json:"name" binding:"required,min=1,max=32"`
+	Description string `json:"description"`
+	Color       string `json:"color"`
+	Position    int    `json:"position"`
+	IsDefault   bool   `json:"isDefault"`
+}
+
+type UpdateMemberRoleInput struct {
+	RoleID uint `json:"roleId" binding:"required"`
+}
+
 func (s *ChannelGroupService) GetAllGroups() ([]model.ChannelGroupResponse, error) {
 	groups, err := s.groupRepo.FindAll()
 	if err != nil {
@@ -71,7 +94,11 @@ func (s *ChannelGroupService) GetAllGroups() ([]model.ChannelGroupResponse, erro
 
 	responses := make([]model.ChannelGroupResponse, len(groups))
 	for i, group := range groups {
-		responses[i] = model.ToChannelGroupResponse(group)
+		response := model.ToChannelGroupResponse(group)
+		if roles, err := s.getGroupRoleResponses(group.ID); err == nil {
+			response.Roles = roles
+		}
+		responses[i] = response
 	}
 	return responses, nil
 }
@@ -83,6 +110,9 @@ func (s *ChannelGroupService) GetGroupByID(id uint) (*model.ChannelGroupResponse
 	}
 
 	response := model.ToChannelGroupResponse(*group)
+	if roles, err := s.getGroupRoleResponses(group.ID); err == nil {
+		response.Roles = roles
+	}
 	return &response, nil
 }
 
@@ -94,21 +124,13 @@ func (s *ChannelGroupService) GetUserGroups(userID uint) ([]model.ChannelGroupRe
 
 	responses := make([]model.ChannelGroupResponse, len(groups))
 	for i, group := range groups {
-		// Get members for each group
-		members, _ := s.userGroupRepo.GetGroupMembers(group.ID)
 		response := model.ToChannelGroupResponse(group)
 
-		// Add members to response with real-time online status from Redis
-		memberResponses := make([]model.UserResponse, len(members))
-		for j, member := range members {
-			memberResponse := model.ToUserResponse(member)
-			// Check real-time online status from Redis
-			if s.redis != nil {
-				memberResponse.IsOnline = s.redis.IsUserOnline(member.ID)
-			}
-			memberResponses[j] = memberResponse
-		}
+		memberResponses, _ := s.getGroupMemberResponses(group.ID)
 		response.Members = memberResponses
+		if roles, err := s.getGroupRoleResponses(group.ID); err == nil {
+			response.Roles = roles
+		}
 
 		responses[i] = response
 	}
@@ -145,7 +167,13 @@ func (s *ChannelGroupService) CreateGroup(input CreateGroupInput, ownerID uint) 
 		GroupID: group.ID,
 		Role:    "owner",
 	}
-	s.userGroupRepo.Create(userGroup)
+	if err := s.userGroupRepo.Create(userGroup); err != nil {
+		return nil, err
+	}
+
+	if err := s.ensureDefaultRoles(group.ID); err != nil {
+		return nil, err
+	}
 
 	// Create default channels
 	textChannel := &model.Channel{
@@ -199,15 +227,26 @@ func (s *ChannelGroupService) UpdateGroup(groupID, userID uint, input UpdateGrou
 }
 
 func (s *ChannelGroupService) JoinGroup(userID, groupID uint) error {
+	if err := s.ensureDefaultRoles(groupID); err != nil {
+		return err
+	}
+
 	// Check if already joined
 	if s.userGroupRepo.Exists(userID, groupID) {
 		return nil
 	}
 
+	defaultRole := "guest"
+	if s.groupRoleRepo != nil {
+		if role, err := s.groupRoleRepo.FindDefaultByGroupID(groupID); err == nil && role != nil {
+			defaultRole = role.Name
+		}
+	}
+
 	userGroup := &model.UserGroup{
 		UserID:  userID,
 		GroupID: groupID,
-		Role:    "member",
+		Role:    defaultRole,
 	}
 
 	return s.userGroupRepo.Create(userGroup)
@@ -292,8 +331,8 @@ func (s *ChannelGroupService) GetGroupPreviewByInviteCode(inviteCode string, use
 	response := model.ToChannelGroupResponse(*group)
 
 	// Get member count
-	members, _ := s.userGroupRepo.GetGroupMembers(group.ID)
-	response.MemberCount = len(members)
+	memberResponses, _ := s.getGroupMemberResponses(group.ID)
+	response.MemberCount = len(memberResponses)
 
 	// Check if user is a member
 	response.IsMember = s.userGroupRepo.Exists(userID, group.ID)
@@ -309,24 +348,11 @@ func (s *ChannelGroupService) LeaveGroup(userID, groupID uint) error {
 }
 
 func (s *ChannelGroupService) GetGroupMembers(groupID uint) ([]model.UserResponse, error) {
-	members, err := s.userGroupRepo.GetGroupMembers(groupID)
+	members, err := s.getGroupMemberResponses(groupID)
 	if err != nil {
 		return nil, err
 	}
-
-	responses := make([]model.UserResponse, len(members))
-	for i, member := range members {
-		response := model.ToUserResponse(member)
-		// Check real-time online status from Redis
-		// Only override if Redis is available and has data
-		if s.redis != nil {
-			// Redis has the authoritative online status
-			response.IsOnline = s.redis.IsUserOnline(member.ID)
-		}
-		// If Redis is not available, use database value (already set by ToUserResponse)
-		responses[i] = response
-	}
-	return responses, nil
+	return members, nil
 }
 
 func (s *ChannelGroupService) GetChannelMembers(channelID uint) ([]model.UserResponse, error) {
@@ -337,21 +363,11 @@ func (s *ChannelGroupService) GetChannelMembers(channelID uint) ([]model.UserRes
 	}
 
 	// Return group members as channel members with real-time online status
-	members, err := s.userGroupRepo.GetGroupMembers(channel.GroupID)
+	members, err := s.getGroupMemberResponses(channel.GroupID)
 	if err != nil {
 		return nil, err
 	}
-
-	responses := make([]model.UserResponse, len(members))
-	for i, member := range members {
-		response := model.ToUserResponse(member)
-		// Check real-time online status from Redis
-		if s.redis != nil {
-			response.IsOnline = s.redis.IsUserOnline(member.ID)
-		}
-		responses[i] = response
-	}
-	return responses, nil
+	return members, nil
 }
 
 // GetActiveChannelMembers returns members currently in the channel (from Redis)
@@ -359,7 +375,35 @@ func (s *ChannelGroupService) GetActiveChannelMembers(channelID uint) ([]map[str
 	if s.redis == nil {
 		return []map[string]interface{}{}, nil
 	}
-	return s.redis.GetTextChannelMembers(channelID)
+
+	channel, err := s.channelRepo.FindByID(channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	members, err := s.redis.GetTextChannelMembers(channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]map[string]interface{}, 0, len(members))
+	for _, member := range members {
+		userID, ok := memberUserID(member)
+		if !ok {
+			continue
+		}
+
+		userGroup, err := s.userGroupRepo.FindByUserAndGroup(userID, channel.GroupID)
+		if err != nil {
+			_ = s.redis.LeaveTextChannel(channelID, userID)
+			continue
+		}
+
+		member["groupRole"] = userGroup.Role
+		filtered = append(filtered, member)
+	}
+
+	return filtered, nil
 }
 
 func (s *ChannelGroupService) CreateChannel(input CreateChannelInput) (*model.ChannelResponse, error) {
@@ -512,6 +556,9 @@ func (s *ChannelGroupService) DeleteGroup(groupID uint) error {
 		if err := tx.Unscoped().Where("group_id = ?", groupID).Delete(&model.UserGroup{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Unscoped().Where("group_id = ?", groupID).Delete(&model.GroupRole{}).Error; err != nil {
+			return err
+		}
 		// 2. 删除该群组下所有频道（CASCADE 会自动删除关联的 messages）
 		if err := tx.Unscoped().Where("group_id = ?", groupID).Delete(&model.Channel{}).Error; err != nil {
 			return err
@@ -522,6 +569,266 @@ func (s *ChannelGroupService) DeleteGroup(groupID uint) error {
 		}
 		return nil
 	})
+}
+
+func (s *ChannelGroupService) GetGroupRoles(groupID uint) ([]model.GroupRoleResponse, error) {
+	return s.getGroupRoleResponses(groupID)
+}
+
+func (s *ChannelGroupService) CreateGroupRole(groupID, userID uint, input CreateGroupRoleInput) (*model.GroupRoleResponse, error) {
+	if !s.canManageGroup(userID, groupID) {
+		return nil, ErrNoPermission
+	}
+
+	role := &model.GroupRole{
+		GroupID:     groupID,
+		Name:        strings.TrimSpace(input.Name),
+		Description: strings.TrimSpace(input.Description),
+		Color:       strings.TrimSpace(input.Color),
+		Position:    input.Position,
+		IsDefault:   input.IsDefault,
+		IsSystem:    false,
+	}
+	if role.Name == "" {
+		return nil, errors.New("role name is required")
+	}
+	if s.groupRoleRepo.Exists(groupID, role.Name) {
+		return nil, errors.New("role name already exists")
+	}
+	if role.IsDefault {
+		if err := s.clearDefaultGroupRole(groupID); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.groupRoleRepo.Create(role); err != nil {
+		return nil, err
+	}
+
+	response := model.ToGroupRoleResponse(*role)
+	return &response, nil
+}
+
+func (s *ChannelGroupService) UpdateGroupRole(groupID, roleID, userID uint, input UpdateGroupRoleInput) (*model.GroupRoleResponse, error) {
+	if !s.canManageGroup(userID, groupID) {
+		return nil, ErrNoPermission
+	}
+
+	role, err := s.groupRoleRepo.FindByID(roleID)
+	if err != nil {
+		return nil, err
+	}
+	if role.GroupID != groupID {
+		return nil, ErrInvalidInviteCode
+	}
+
+	oldName := role.Name
+	newName := strings.TrimSpace(input.Name)
+	if newName == "" {
+		return nil, errors.New("role name is required")
+	}
+	if oldName != newName && s.groupRoleRepo.Exists(groupID, newName) {
+		return nil, errors.New("role name already exists")
+	}
+
+	role.Name = newName
+	role.Description = strings.TrimSpace(input.Description)
+	role.Color = strings.TrimSpace(input.Color)
+	role.Position = input.Position
+	if input.IsDefault {
+		if err := s.clearDefaultGroupRole(groupID); err != nil {
+			return nil, err
+		}
+		role.IsDefault = true
+	} else {
+		role.IsDefault = false
+	}
+
+	if err := s.groupRoleRepo.Update(role); err != nil {
+		return nil, err
+	}
+	if oldName != role.Name {
+		if err := s.userGroupRepo.DB().Model(&model.UserGroup{}).
+			Where("group_id = ? AND role = ?", groupID, oldName).
+			Update("role", role.Name).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	response := model.ToGroupRoleResponse(*role)
+	return &response, nil
+}
+
+func (s *ChannelGroupService) DeleteGroupRole(groupID, roleID, userID uint) error {
+	if !s.canManageGroup(userID, groupID) {
+		return ErrNoPermission
+	}
+
+	role, err := s.groupRoleRepo.FindByID(roleID)
+	if err != nil {
+		return err
+	}
+	if role.GroupID != groupID {
+		return ErrInvalidInviteCode
+	}
+	if role.IsSystem {
+		return ErrNoPermission
+	}
+
+	if err := s.userGroupRepo.DB().Model(&model.UserGroup{}).
+		Where("group_id = ? AND role = ?", groupID, role.Name).
+		Update("role", "guest").Error; err != nil {
+		return err
+	}
+	return s.groupRoleRepo.Delete(roleID)
+}
+
+func (s *ChannelGroupService) AssignMemberRole(groupID, targetUserID, roleID, actorID uint) error {
+	if !s.canManageGroup(actorID, groupID) {
+		return ErrNoPermission
+	}
+
+	role, err := s.groupRoleRepo.FindByID(roleID)
+	if err != nil {
+		return err
+	}
+	if role.GroupID != groupID || role.Name == "owner" {
+		return ErrNoPermission
+	}
+
+	member, err := s.userGroupRepo.FindByUserAndGroup(targetUserID, groupID)
+	if err != nil {
+		return err
+	}
+	if member.Role == "owner" {
+		return ErrNoPermission
+	}
+
+	return s.userGroupRepo.UpdateRole(targetUserID, groupID, role.Name)
+}
+
+func (s *ChannelGroupService) ensureDefaultRoles(groupID uint) error {
+	if s.groupRoleRepo == nil {
+		return nil
+	}
+
+	defaultRoles := []model.GroupRole{
+		{
+			GroupID:     groupID,
+			Name:        "admin",
+			Description: "Can manage members and channels",
+			Color:       "#8b5cf6",
+			Position:    1,
+			IsSystem:    true,
+		},
+		{
+			GroupID:     groupID,
+			Name:        "guest",
+			Description: "Default role for new members",
+			Color:       "#14b8a6",
+			Position:    2,
+			IsDefault:   true,
+			IsSystem:    true,
+		},
+	}
+
+	for _, role := range defaultRoles {
+		if !s.groupRoleRepo.Exists(groupID, role.Name) {
+			roleCopy := role
+			if err := s.groupRoleRepo.Create(&roleCopy); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *ChannelGroupService) clearDefaultGroupRole(groupID uint) error {
+	if s.groupRoleRepo == nil {
+		return nil
+	}
+
+	roles, err := s.groupRoleRepo.FindByGroupID(groupID)
+	if err != nil {
+		return err
+	}
+	for _, role := range roles {
+		if role.IsDefault {
+			updated := role
+			updated.IsDefault = false
+			if err := s.groupRoleRepo.Update(&updated); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *ChannelGroupService) getGroupRoleResponses(groupID uint) ([]model.GroupRoleResponse, error) {
+	if s.groupRoleRepo == nil {
+		return []model.GroupRoleResponse{}, nil
+	}
+
+	roles, err := s.groupRoleRepo.FindByGroupID(groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	responses := make([]model.GroupRoleResponse, len(roles))
+	for i, role := range roles {
+		responses[i] = model.ToGroupRoleResponse(role)
+	}
+	return responses, nil
+}
+
+func (s *ChannelGroupService) getGroupMemberResponses(groupID uint) ([]model.UserResponse, error) {
+	members, err := s.userGroupRepo.FindByGroupID(groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	responses := make([]model.UserResponse, len(members))
+	for i, member := range members {
+		response := model.ToUserResponse(member.User)
+		response.GroupRole = member.Role
+		if s.redis != nil {
+			response.IsOnline = s.redis.IsUserOnline(member.User.ID)
+		}
+		responses[i] = response
+	}
+	return responses, nil
+}
+
+func memberUserID(member map[string]interface{}) (uint, bool) {
+	value, ok := member["userId"]
+	if !ok {
+		value, ok = member["id"]
+	}
+	if !ok {
+		return 0, false
+	}
+
+	switch typed := value.(type) {
+	case float64:
+		if typed <= 0 {
+			return 0, false
+		}
+		return uint(typed), true
+	case int:
+		if typed <= 0 {
+			return 0, false
+		}
+		return uint(typed), true
+	case uint:
+		return typed, typed > 0
+	case string:
+		parsed, err := strconv.ParseUint(typed, 10, 32)
+		if err != nil || parsed == 0 {
+			return 0, false
+		}
+		return uint(parsed), true
+	default:
+		return 0, false
+	}
 }
 
 // Voice channel participant management

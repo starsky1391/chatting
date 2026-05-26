@@ -199,6 +199,132 @@ func (c *ChannelGroupController) GetGroupMembers(ctx *gin.Context) {
 	response.Success(ctx, members)
 }
 
+func (c *ChannelGroupController) GetGroupRoles(ctx *gin.Context) {
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+
+	roles, err := c.groupService.GetGroupRoles(uint(id))
+	if err != nil {
+		response.InternalError(ctx, "Failed to get group roles")
+		return
+	}
+	response.Success(ctx, roles)
+}
+
+func (c *ChannelGroupController) CreateGroupRole(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+	groupID, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+
+	var input service.CreateGroupRoleInput
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+
+	role, err := c.groupService.CreateGroupRole(uint(groupID), userID, input)
+	if err != nil {
+		if errors.Is(err, service.ErrNoPermission) {
+			response.Forbidden(ctx, "You don't have permission to manage roles")
+			return
+		}
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+	response.Created(ctx, role)
+}
+
+func (c *ChannelGroupController) UpdateGroupRole(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+	groupID, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+	roleID, err := strconv.ParseUint(ctx.Param("roleId"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid role ID")
+		return
+	}
+
+	var input service.UpdateGroupRoleInput
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+
+	role, err := c.groupService.UpdateGroupRole(uint(groupID), uint(roleID), userID, input)
+	if err != nil {
+		if errors.Is(err, service.ErrNoPermission) {
+			response.Forbidden(ctx, "You don't have permission to manage roles")
+			return
+		}
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+	response.Success(ctx, role)
+}
+
+func (c *ChannelGroupController) DeleteGroupRole(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+	groupID, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+	roleID, err := strconv.ParseUint(ctx.Param("roleId"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid role ID")
+		return
+	}
+
+	if err := c.groupService.DeleteGroupRole(uint(groupID), uint(roleID), userID); err != nil {
+		if errors.Is(err, service.ErrNoPermission) {
+			response.Forbidden(ctx, "You don't have permission to manage roles")
+			return
+		}
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+	response.SuccessWithMessage(ctx, nil, "Role deleted")
+}
+
+func (c *ChannelGroupController) UpdateMemberRole(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+	groupID, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+	targetUserID, err := strconv.ParseUint(ctx.Param("userId"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid user ID")
+		return
+	}
+
+	var input service.UpdateMemberRoleInput
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+
+	if err := c.groupService.AssignMemberRole(uint(groupID), uint(targetUserID), input.RoleID, userID); err != nil {
+		if errors.Is(err, service.ErrNoPermission) {
+			response.Forbidden(ctx, "You don't have permission to manage members")
+			return
+		}
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+	response.SuccessWithMessage(ctx, nil, "Member role updated")
+}
+
 func (c *ChannelGroupController) GetChannelMembers(ctx *gin.Context) {
 	channelID, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
 	if err != nil {

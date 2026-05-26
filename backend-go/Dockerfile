@@ -30,8 +30,9 @@ RUN for i in 1 2 3; do \
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the application and optional demo seeder
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o main ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o seed-demo ./cmd/seed-demo
 
 # Runtime stage
 FROM alpine:latest
@@ -46,6 +47,7 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder /app/main .
+COPY --from=builder /app/seed-demo .
 
 # Set timezone
 ENV TZ=Asia/Shanghai

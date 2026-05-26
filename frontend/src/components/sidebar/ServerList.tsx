@@ -36,6 +36,22 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
   const [joinInviteCode, setJoinInviteCode] = useState('');
   const [joinError, setJoinError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: number; name: string } | null>(null);
+  const [hoveredTooltip, setHoveredTooltip] = useState<string | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+
+  const showTooltip = (key: string, event: React.MouseEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHoveredTooltip(key);
+    setTooltipPosition({
+      x: rect.right + 12,
+      y: rect.top + rect.height / 2,
+    });
+  };
+
+  const hideTooltip = () => {
+    setHoveredTooltip(null);
+    setTooltipPosition(null);
+  };
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -182,53 +198,74 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
   return (
     <div className="flex h-full min-h-0 flex-col items-center py-2">
       <div className="flex flex-col items-center gap-2">
-        <button
-          onClick={() => {
-            setCurrentGroupId(null);
-            setCurrentChannel(null);
-            if (currentUser?.id) router.push(`/${currentUser.id}/dm`);
-          }}
-          className={cn(
-            "flex h-12 w-12 items-center justify-center text-lg font-bold transition-all duration-200 hover:scale-105",
-            pathname.endsWith('/dm')
-              ? "rounded-xl bg-indigo-500 text-white"
-              : "rounded-full bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:rounded-xl"
-          )}
-          title="Direct Messages"
+        <div
+          className="relative"
+          onMouseEnter={(event) => showTooltip('dm', event)}
+          onMouseLeave={hideTooltip}
         >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h8M8 14h5m8-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </button>
-
-        {currentUser?.role === 'admin' && (
           <button
-            onClick={() => router.push('/admin')}
+            onClick={() => {
+              setCurrentGroupId(null);
+              setCurrentChannel(null);
+              if (currentUser?.id) router.push(`/${currentUser.id}/dm`);
+            }}
             className={cn(
               "flex h-12 w-12 items-center justify-center text-lg font-bold transition-all duration-200 hover:scale-105",
-              pathname === '/admin'
-                ? "rounded-xl bg-amber-500 text-white"
-                : "rounded-full bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 hover:rounded-xl"
+              pathname.endsWith('/dm')
+                ? "rounded-xl bg-indigo-500 text-white"
+                : "rounded-full bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:rounded-xl"
             )}
-            title="Admin"
+            aria-label="Direct Messages"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3l7 4v5c0 4.5-2.9 8.4-7 9-4.1-.6-7-4.5-7-9V7l7-4z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h8M8 14h5m8-2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </button>
+          {hoveredTooltip === 'dm' && tooltipPosition && <TooltipLabel text="Direct Messages" position={tooltipPosition} />}
+        </div>
+
+        {currentUser?.role === 'admin' && (
+          <div
+            className="relative"
+            onMouseEnter={(event) => showTooltip('admin', event)}
+            onMouseLeave={hideTooltip}
+          >
+            <button
+              onClick={() => router.push('/admin')}
+              className={cn(
+                "flex h-12 w-12 items-center justify-center text-lg font-bold transition-all duration-200 hover:scale-105",
+                pathname === '/admin'
+                  ? "rounded-xl bg-amber-500 text-white"
+                  : "rounded-full bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 hover:rounded-xl"
+              )}
+              aria-label="Admin"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3l7 4v5c0 4.5-2.9 8.4-7 9-4.1-.6-7-4.5-7-9V7l7-4z" />
+              </svg>
+            </button>
+            {hoveredTooltip === 'admin' && tooltipPosition && <TooltipLabel text="Admin" position={tooltipPosition} />}
+          </div>
         )}
 
         <div className="w-8 h-0.5 rounded-full bg-zinc-700/50" />
 
-        <button
-          onClick={() => { setIsAddModalOpen(true); setActiveTab('create'); setJoinError(''); }}
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-700/50 text-zinc-400 transition-all duration-200 hover:scale-105 hover:rounded-xl hover:bg-green-500/20 hover:text-green-400"
-          title="Add a Server"
+        <div
+          className="relative"
+          onMouseEnter={(event) => showTooltip('add', event)}
+          onMouseLeave={hideTooltip}
         >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-        </button>
+          <button
+            onClick={() => { setIsAddModalOpen(true); setActiveTab('create'); setJoinError(''); }}
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-700/50 text-zinc-400 transition-all duration-200 hover:scale-105 hover:rounded-xl hover:bg-green-500/20 hover:text-green-400"
+            aria-label="Add a Server"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+          {hoveredTooltip === 'add' && tooltipPosition && <TooltipLabel text="Add a Server" position={tooltipPosition} />}
+        </div>
       </div>
 
       <div className="no-scrollbar mt-2 flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden">
@@ -237,72 +274,93 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
             const iconUrl = getGroupIconUrl(group.icon);
             const hasImage = !!iconUrl;
             return (
-              <ContextMenu
+              <div
                 key={group.id}
-                items={[
-                  {
-                    label: 'Delete Server',
-                    icon: (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.846L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    ),
-                    onClick: () => setDeleteConfirm({ id: group.id, name: group.name }),
-                    danger: true,
-                    disabled: group.ownerId !== currentUser?.id
-                  }
-                ]}
+                className="relative"
+                onMouseEnter={(event) => showTooltip(`group-${group.id}`, event)}
+                onMouseLeave={hideTooltip}
               >
-                <button
-                  onClick={() => handleGroupClick(group)}
-                  className={cn(
-                    "group flex h-12 w-12 items-center justify-center overflow-hidden text-lg font-bold transition-all duration-200 hover:scale-105",
-                    currentGroupId === group.id
-                      ? "rounded-xl bg-indigo-500 text-white shadow-lg"
-                      : hasImage
-                        ? "rounded-[14px] bg-zinc-700/50 text-zinc-300 hover:bg-zinc-600/50"
-                        : "rounded-full bg-zinc-700/50 text-zinc-300 hover:bg-zinc-600/50 hover:rounded-xl"
-                  )}
-                  title={group.name}
+                <ContextMenu
+                  items={[
+                    {
+                      label: 'Delete Server',
+                      icon: (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.846L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      ),
+                      onClick: () => setDeleteConfirm({ id: group.id, name: group.name }),
+                      danger: true,
+                      disabled: group.ownerId !== currentUser?.id
+                    }
+                  ]}
                 >
-                  {iconUrl ? (
-                    <img src={iconUrl} alt={group.name} className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105" />
-                  ) : group.icon ? (
-                    <span className="text-2xl">{group.icon}</span>
-                  ) : (
-                    getInitial(group.name)
-                  )}
-                </button>
-              </ContextMenu>
+                  <button
+                    onClick={() => handleGroupClick(group)}
+                    className={cn(
+                      "group flex h-12 w-12 items-center justify-center overflow-hidden text-lg font-bold transition-all duration-200 hover:scale-105",
+                      currentGroupId === group.id
+                        ? "rounded-[14px] bg-indigo-500 text-white shadow-lg"
+                        : hasImage
+                          ? "rounded-[14px] bg-zinc-700/50 text-zinc-300 hover:bg-zinc-600/50"
+                          : "rounded-[14px] bg-zinc-700/50 text-zinc-300 hover:bg-zinc-600/50"
+                    )}
+                    aria-label={group.name}
+                  >
+                    {iconUrl ? (
+                      <img src={iconUrl} alt={group.name} className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105" />
+                    ) : group.icon ? (
+                      <span className="text-2xl">{group.icon}</span>
+                    ) : (
+                      getInitial(group.name)
+                    )}
+                  </button>
+                </ContextMenu>
+                {hoveredTooltip === `group-${group.id}` && tooltipPosition && <TooltipLabel text={group.name} position={tooltipPosition} />}
+              </div>
             );
           })}
         </div>
       </div>
 
       <div className="mt-2 flex flex-col items-center gap-2">
-        <button
-          onClick={() => router.push('/profile')}
-          className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-zinc-700/50 transition-all duration-200 hover:scale-105 hover:rounded-xl"
-          title={currentUser?.username}
+        <div
+          className="relative"
+          onMouseEnter={(event) => showTooltip('profile', event)}
+          onMouseLeave={hideTooltip}
         >
-          {currentUser?.avatarUrl ? (
-            <img src={`${config.api.baseUrl}${currentUser.avatarUrl}`} alt="Avatar" className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-lg font-bold text-zinc-300">
-              {currentUser?.username?.charAt(0)?.toUpperCase() || 'U'}
-            </span>
-          )}
-        </button>
+          <button
+            onClick={() => router.push('/profile')}
+            className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-zinc-700/50 transition-all duration-200 hover:scale-105 hover:rounded-xl"
+            aria-label={currentUser?.username || 'Profile'}
+          >
+            {currentUser?.avatarUrl ? (
+              <img src={`${config.api.baseUrl}${currentUser.avatarUrl}`} alt="Avatar" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-lg font-bold text-zinc-300">
+                {currentUser?.username?.charAt(0)?.toUpperCase() || 'U'}
+              </span>
+            )}
+          </button>
+          {hoveredTooltip === 'profile' && tooltipPosition && <TooltipLabel text={currentUser?.username || 'Profile'} position={tooltipPosition} />}
+        </div>
 
-        <button
-          onClick={handleLogout}
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-700/50 text-zinc-400 transition-all duration-200 hover:scale-105 hover:rounded-xl hover:bg-red-500/20 hover:text-red-400"
-          title="Logout"
+        <div
+          className="relative"
+          onMouseEnter={(event) => showTooltip('logout', event)}
+          onMouseLeave={hideTooltip}
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-          </svg>
-        </button>
+          <button
+            onClick={handleLogout}
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-700/50 text-zinc-400 transition-all duration-200 hover:scale-105 hover:rounded-xl hover:bg-red-500/20 hover:text-red-400"
+            aria-label="Logout"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+          </button>
+          {hoveredTooltip === 'logout' && tooltipPosition && <TooltipLabel text="Logout" position={tooltipPosition} />}
+        </div>
       </div>
 
       {/* Add Server Modal */}
@@ -413,6 +471,20 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
 // Helper function
 function cn(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ');
+}
+
+function TooltipLabel({ text, position }: { text: string; position: { x: number; y: number } }) {
+  return (
+    <div
+      className="pointer-events-none fixed z-[100] -translate-y-1/2"
+      style={{ left: position.x, top: position.y }}
+    >
+      <div className="relative whitespace-nowrap rounded-md border border-zinc-700/60 bg-zinc-950/95 px-3 py-1.5 text-sm font-medium text-white shadow-xl">
+        {text}
+        <span className="absolute left-0 top-1/2 h-3 w-3 -translate-x-1.5 -translate-y-1/2 rotate-45 border-l border-t border-zinc-700/60 bg-zinc-950/95" />
+      </div>
+    </div>
+  );
 }
 
 export default ServerList;

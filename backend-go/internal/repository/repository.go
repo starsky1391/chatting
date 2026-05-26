@@ -2,6 +2,7 @@ package repository
 
 import (
 	"chat-backend/internal/model"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -199,14 +200,21 @@ func (r *MessageRepository) Create(message *model.Message) error {
 	return r.db.Create(message).Error
 }
 
-func (r *MessageRepository) FindByChannelID(channelID uint, limit, offset int) ([]model.Message, error) {
+func (r *MessageRepository) FindByChannelID(channelID uint, limit, offset int, day, startAt, endAt *time.Time) ([]model.Message, error) {
 	var messages []model.Message
-	err := r.db.Preload("Sender").
+	query := r.db.Preload("Sender").
 		Where("channel_id = ?", channelID).
-		Order("created_at desc").
-		Limit(limit).
-		Offset(offset).
-		Find(&messages).Error
+		Order("created_at desc")
+
+	if startAt != nil && endAt != nil {
+		query = query.Where("created_at >= ? AND created_at < ?", *startAt, *endAt)
+	} else if day != nil {
+		start := day.Truncate(24 * time.Hour)
+		end := start.Add(24 * time.Hour)
+		query = query.Where("created_at >= ? AND created_at < ?", start, end)
+	}
+
+	err := query.Limit(limit).Offset(offset).Find(&messages).Error
 	return messages, err
 }
 
@@ -214,6 +222,10 @@ func (r *MessageRepository) FindByID(id uint) (*model.Message, error) {
 	var message model.Message
 	err := r.db.Preload("Sender").First(&message, id).Error
 	return &message, err
+}
+
+func (r *MessageRepository) Delete(message *model.Message) error {
+	return r.db.Delete(message).Error
 }
 
 type UserChannelRepository struct {
@@ -274,6 +286,12 @@ func (r *UserGroupRepository) FindByGroupID(groupID uint) ([]model.UserGroup, er
 	return userGroups, err
 }
 
+func (r *UserGroupRepository) FindByUserAndGroup(userID, groupID uint) (*model.UserGroup, error) {
+	var userGroup model.UserGroup
+	err := r.db.Preload("User").Where("user_id = ? AND group_id = ?", userID, groupID).First(&userGroup).Error
+	return &userGroup, err
+}
+
 func (r *UserGroupRepository) Delete(userID, groupID uint) error {
 	return r.db.Where("user_id = ? AND group_id = ?", userID, groupID).Delete(&model.UserGroup{}).Error
 }
@@ -304,6 +322,16 @@ func (r *UserGroupRepository) GetUserRole(userID, groupID uint) string {
 		return ""
 	}
 	return userGroup.Role
+}
+
+func (r *UserGroupRepository) UpdateRole(userID, groupID uint, role string) error {
+	return r.db.Model(&model.UserGroup{}).
+		Where("user_id = ? AND group_id = ?", userID, groupID).
+		Update("role", role).Error
+}
+
+func (r *UserGroupRepository) DB() *gorm.DB {
+	return r.db
 }
 
 type WechatBindingRepository struct {
@@ -489,6 +517,12 @@ func (r *DirectMessageRepository) Create(message *model.DirectMessage) error {
 	return r.db.Create(message).Error
 }
 
+func (r *DirectMessageRepository) FindByID(messageID uint) (*model.DirectMessage, error) {
+	var message model.DirectMessage
+	err := r.db.Preload("Sender").First(&message, messageID).Error
+	return &message, err
+}
+
 func (r *DirectMessageRepository) FindByConversationID(conversationID uint, limit, offset int) ([]model.DirectMessage, error) {
 	var messages []model.DirectMessage
 	err := r.db.Preload("Sender").
@@ -498,4 +532,8 @@ func (r *DirectMessageRepository) FindByConversationID(conversationID uint, limi
 		Offset(offset).
 		Find(&messages).Error
 	return messages, err
+}
+
+func (r *DirectMessageRepository) Delete(message *model.DirectMessage) error {
+	return r.db.Delete(message).Error
 }

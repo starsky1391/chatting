@@ -1,9 +1,10 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
-import React, { useState, KeyboardEvent } from 'react';
+import React, { useEffect, useState, KeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { config } from '@/lib/config';
 import { UserContextMenu, useUserContextMenu } from '@/components/user/UserContextMenu';
+import { RotateCcw } from 'lucide-react';
 
 interface Message {
   id: number;
@@ -23,10 +24,14 @@ interface Message {
 
 interface MessageBubbleProps {
   message: Message;
+  onRecall?: (messageId: number) => Promise<void>;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall }) => {
   const { menu, openUserMenu, closeUserMenu } = useUserContextMenu();
+  const [now, setNow] = useState(() => Date.now());
+  const [isRecalling, setIsRecalling] = useState(false);
+  const [recallError, setRecallError] = useState('');
   const safeMessage = {
     id: message.id || 0,
     content: message.content || { type: 'text', body: '' },
@@ -41,6 +46,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
   };
 
   const messageDate = typeof safeMessage.createdAt === 'string' ? new Date(safeMessage.createdAt) : safeMessage.createdAt;
+  const recallSecondsLeft = Math.max(0, Math.ceil((messageDate.getTime() + 30_000 - now) / 1000));
+  const canRecall = Boolean(onRecall && safeMessage.isOwn && safeMessage.id && recallSecondsLeft > 0);
 
   const isImageMessage = safeMessage.content.body.startsWith('image:') || safeMessage.content.body.startsWith('/uploads/');
   const imagePath = safeMessage.content.body.startsWith('image:')
@@ -52,8 +59,27 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
 
   const closeImageModal = () => setIsImageExpanded(false);
 
+  useEffect(() => {
+    if (!safeMessage.isOwn || recallSecondsLeft <= 0) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [safeMessage.isOwn, recallSecondsLeft]);
+
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') closeImageModal();
+  };
+
+  const handleRecall = async () => {
+    if (!onRecall || !canRecall || isRecalling) return;
+    setIsRecalling(true);
+    setRecallError('');
+    try {
+      await onRecall(safeMessage.id);
+    } catch (error) {
+      setRecallError(error instanceof Error ? error.message : '撤回消息失败');
+    } finally {
+      setIsRecalling(false);
+    }
   };
 
   // Render avatar - use image if available, otherwise show initial
@@ -71,7 +97,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
   };
 
   return (
-    <div className={`flex items-start gap-3 message-bubble ${safeMessage.isOwn ? 'justify-end' : 'justify-start'}`}>
+    <div className={`group flex items-start gap-3 message-bubble ${safeMessage.isOwn ? 'justify-end' : 'justify-start'}`}>
       <UserContextMenu menu={menu} onClose={closeUserMenu} />
 
       {!safeMessage.isOwn && (
@@ -85,6 +111,18 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
 
       <div className="max-w-[70%]">
         <div className={`flex items-center gap-2 mb-1.5 ${safeMessage.isOwn ? 'justify-end' : 'justify-start'}`}>
+          {canRecall && safeMessage.isOwn && (
+            <button
+              type="button"
+              onClick={handleRecall}
+              disabled={isRecalling}
+              className="inline-flex items-center gap-1 rounded-md border border-zinc-700/70 bg-zinc-900/80 px-2 py-0.5 text-[11px] text-zinc-300 opacity-0 transition-all hover:border-amber-500/50 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50 group-hover:opacity-100"
+              title={`还剩 ${recallSecondsLeft} 秒可撤回`}
+            >
+              <RotateCcw className="h-3 w-3" />
+              {isRecalling ? '撤回中' : `撤回 ${recallSecondsLeft}s`}
+            </button>
+          )}
           <span
             className={`text-sm font-medium cursor-pointer ${safeMessage.isOwn ? 'text-indigo-400' : 'text-zinc-300'}`}
             onContextMenu={(event) => openUserMenu(event, safeMessage.sender)}
@@ -148,6 +186,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
                 {safeMessage.content.body || 'No content'}
               </ReactMarkdown>
             </div>
+          </div>
+        )}
+        {recallError && (
+          <div className={`mt-1 text-xs text-red-300 ${safeMessage.isOwn ? 'text-right' : 'text-left'}`}>
+            {recallError}
           </div>
         )}
       </div>

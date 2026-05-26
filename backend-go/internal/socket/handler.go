@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"chat-backend/internal/model"
 	"chat-backend/internal/redis"
@@ -24,10 +25,20 @@ var upgrader = websocket.Upgrader{
 
 var redisClient *redis.RedisClient
 var userRepo UserRepository
+var channelRepo ChannelRepository
+var userGroupRepo UserGroupRepository
 
 // UserRepository interface for getting user info
 type UserRepository interface {
 	FindByID(id uint) (*model.User, error)
+}
+
+type ChannelRepository interface {
+	FindByID(id uint) (*model.Channel, error)
+}
+
+type UserGroupRepository interface {
+	Exists(userID, groupID uint) bool
 }
 
 func SetRedisClient(client *redis.RedisClient) {
@@ -36,6 +47,14 @@ func SetRedisClient(client *redis.RedisClient) {
 
 func SetUserRepository(repo UserRepository) {
 	userRepo = repo
+}
+
+func SetChannelRepository(repo ChannelRepository) {
+	channelRepo = repo
+}
+
+func SetUserGroupRepository(repo UserGroupRepository) {
+	userGroupRepo = repo
 }
 
 func HandleWebSocket(hub *Hub, c *gin.Context) {
@@ -72,6 +91,16 @@ func HandleWebSocket(hub *Hub, c *gin.Context) {
 	// Read messages from client
 	go func() {
 		defer func() {
+			if redisClient != nil {
+				for roomID := range client.Rooms {
+					if strings.HasPrefix(roomID, "channel-") {
+						redisClient.LeaveTextChannel(parseChannelID(roomID), userID)
+					}
+					if strings.HasPrefix(roomID, "voice-channel-") {
+						redisClient.LeaveVoiceChannel(parseVoiceChannelID(roomID), userID)
+					}
+				}
+			}
 			hub.Unregister <- client
 			conn.Close()
 		}()
@@ -104,18 +133,31 @@ func HandleWebSocket(hub *Hub, c *gin.Context) {
 
 			case "join-channel":
 				if channelID, ok := msg["channelId"].(float64); ok {
+					channelUint := uint(channelID)
+					if !canAccessChannel(userID, channelUint) {
+						client.Conn.WriteJSON(&Message{
+							Type: "channel:error",
+							Payload: map[string]interface{}{
+								"channelId": int(channelID),
+								"message":   "permission denied",
+							},
+						})
+						continue
+					}
+
 					roomID := fmt.Sprintf("channel-%d", int(channelID))
 					hub.JoinRoom(roomID, client)
 
 					// Add to Redis channel members
 					if redisClient != nil {
-						redisClient.JoinTextChannel(uint(channelID), userID, username, avatarUrl)
+						redisClient.JoinTextChannel(channelUint, userID, username, avatarUrl)
 					}
 
 					// Get current channel members from Redis
 					var members []map[string]interface{}
 					if redisClient != nil {
-						members, _ = redisClient.GetTextChannelMembers(uint(channelID))
+						members, _ = redisClient.GetTextChannelMembers(channelUint)
+						members = filterAccessibleChannelMembers(channelUint, members)
 					}
 
 					// Send current members to the joining user
@@ -234,22 +276,22 @@ func HandleWebSocket(hub *Hub, c *gin.Context) {
 					hub.BroadcastToRoom(textRoomID, &Message{
 						Type: "voice:call-status",
 						Payload: map[string]interface{}{
-							"channelId":       int(channelID),
-							"userId":          userID,
-							"username":        username,
-							"avatarUrl":       avatarUrl,
-							"action":          "join",
+							"channelId":        int(channelID),
+							"userId":           userID,
+							"username":         username,
+							"avatarUrl":        avatarUrl,
+							"action":           "join",
 							"participantCount": participantCount,
 						},
 					}, "")
 					hub.Broadcast <- &Message{
 						Type: "voice:call-status",
 						Payload: map[string]interface{}{
-							"channelId":       int(channelID),
-							"userId":          userID,
-							"username":        username,
-							"avatarUrl":       avatarUrl,
-							"action":          "join",
+							"channelId":        int(channelID),
+							"userId":           userID,
+							"username":         username,
+							"avatarUrl":        avatarUrl,
+							"action":           "join",
 							"participantCount": participantCount,
 						},
 					}
@@ -285,20 +327,20 @@ func HandleWebSocket(hub *Hub, c *gin.Context) {
 					hub.BroadcastToRoom(textRoomID, &Message{
 						Type: "voice:call-status",
 						Payload: map[string]interface{}{
-							"channelId":       int(channelID),
-							"userId":          userID,
-							"username":        username,
-							"action":          "leave",
+							"channelId":        int(channelID),
+							"userId":           userID,
+							"username":         username,
+							"action":           "leave",
 							"participantCount": participantCount,
 						},
 					}, "")
 					hub.Broadcast <- &Message{
 						Type: "voice:call-status",
 						Payload: map[string]interface{}{
-							"channelId":       int(channelID),
-							"userId":          userID,
-							"username":        username,
-							"action":          "leave",
+							"channelId":        int(channelID),
+							"userId":           userID,
+							"username":         username,
+							"action":           "leave",
 							"participantCount": participantCount,
 						},
 					}
@@ -336,6 +378,84 @@ func parseChannelID(roomID string) uint {
 	var id int
 	fmt.Sscanf(roomID, "channel-%d", &id)
 	return uint(id)
+}
+
+func parseVoiceChannelID(roomID string) uint {
+	var id int
+	fmt.Sscanf(roomID, "voice-channel-%d", &id)
+	return uint(id)
+}
+
+func canAccessChannel(userID, channelID uint) bool {
+	if channelRepo == nil || userGroupRepo == nil {
+		return true
+	}
+
+	channel, err := channelRepo.FindByID(channelID)
+	if err != nil {
+		return false
+	}
+	return userGroupRepo.Exists(userID, channel.GroupID)
+}
+
+func filterAccessibleChannelMembers(channelID uint, members []map[string]interface{}) []map[string]interface{} {
+	if channelRepo == nil || userGroupRepo == nil {
+		return members
+	}
+
+	channel, err := channelRepo.FindByID(channelID)
+	if err != nil {
+		return []map[string]interface{}{}
+	}
+
+	filtered := make([]map[string]interface{}, 0, len(members))
+	for _, member := range members {
+		userID, ok := socketMemberUserID(member)
+		if !ok {
+			continue
+		}
+		if !userGroupRepo.Exists(userID, channel.GroupID) {
+			if redisClient != nil {
+				redisClient.LeaveTextChannel(channelID, userID)
+			}
+			continue
+		}
+		filtered = append(filtered, member)
+	}
+	return filtered
+}
+
+func socketMemberUserID(member map[string]interface{}) (uint, bool) {
+	value, ok := member["userId"]
+	if !ok {
+		value, ok = member["id"]
+	}
+	if !ok {
+		return 0, false
+	}
+
+	switch typed := value.(type) {
+	case float64:
+		if typed <= 0 {
+			return 0, false
+		}
+		return uint(typed), true
+	case int:
+		if typed <= 0 {
+			return 0, false
+		}
+		return uint(typed), true
+	case uint:
+		return typed, typed > 0
+	case string:
+		parsed, err := strconv.ParseUint(typed, 10, 32)
+		if err != nil || parsed == 0 {
+			return 0, false
+		}
+		return uint(parsed), true
+	default:
+		return 0, false
+	}
 }
 
 // Helper for string conversion

@@ -40,6 +40,7 @@ interface Member {
   avatarUrl?: string;
   isOnline: boolean;
   role: 'admin' | 'moderator' | 'member';
+  groupRole?: string;
   isInCall?: boolean;
 }
 
@@ -76,6 +77,7 @@ interface ChatState {
   messages: Message[];
   addMessage: (message: Message) => void;
   setMessages: (messages: Message[]) => void;
+  removeMessage: (messageId: number) => void;
   
   // 成员相关
   members: Member[];
@@ -243,6 +245,9 @@ export const useChatStore = create<ChatState>((set) => {
       });
       return { messages: validMessages };
     }),
+    removeMessage: (messageId) => set((state) => ({
+      messages: state.messages.filter((message) => message.id !== messageId),
+    })),
     
     // 成员相关
     members: [],

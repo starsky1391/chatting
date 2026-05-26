@@ -40,6 +40,7 @@ func AutoMigrate(db *gorm.DB) error {
 	err := db.AutoMigrate(
 		&User{},
 		&ChannelGroup{},
+		&GroupRole{},
 		&Channel{},
 		&Message{},
 		&UserChannel{},
@@ -182,6 +183,45 @@ func CreateDefaultChannels(db *gorm.DB, adminEmail string) error {
 		}
 
 		log.Println("Default channel group and channels are ready")
+		return nil
+	})
+}
+
+func SeedDefaultGroupRoles(db *gorm.DB) error {
+	var groups []ChannelGroup
+	if err := db.Find(&groups).Error; err != nil {
+		return err
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, group := range groups {
+			defaultRoles := []GroupRole{
+				{
+					GroupID:     group.ID,
+					Name:        "admin",
+					Description: "Can manage members and channels",
+					Color:       "#8b5cf6",
+					Position:    1,
+					IsSystem:    true,
+				},
+				{
+					GroupID:     group.ID,
+					Name:        "guest",
+					Description: "Default role for new members",
+					Color:       "#14b8a6",
+					Position:    2,
+					IsDefault:   true,
+					IsSystem:    true,
+				},
+			}
+
+			for _, role := range defaultRoles {
+				if err := tx.Where("group_id = ? AND name = ?", role.GroupID, role.Name).
+					FirstOrCreate(&role).Error; err != nil {
+					return err
+				}
+			}
+		}
 		return nil
 	})
 }

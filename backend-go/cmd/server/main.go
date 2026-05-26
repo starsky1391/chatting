@@ -49,6 +49,11 @@ func main() {
 		logger.Warn("Failed to create default channels: %v", err)
 	}
 
+	err = model.SeedDefaultGroupRoles(db)
+	if err != nil {
+		logger.Warn("Failed to seed default group roles: %v", err)
+	}
+
 	// Initialize Redis client (optional)
 	redisClient, err := redis.NewRedisClient(cfg.Redis)
 	if err != nil {

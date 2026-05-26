@@ -18,6 +18,7 @@ import {
   onConnect,
   onDisconnect
 } from '@/lib/socket';
+import { Search, Users } from 'lucide-react';
 
 const MainLayout: React.FC = () => {
   const currentUser = useChatStore((state) => state.currentUser);
@@ -25,9 +26,11 @@ const MainLayout: React.FC = () => {
   const currentGroupId = useChatStore((state) => state.currentGroupId);
   const members = useChatStore((state) => state.members);
   const isMemberSidebarOpen = useChatStore((state) => state.isMemberSidebarOpen);
+  const toggleMemberSidebar = useChatStore((state) => state.toggleMemberSidebar);
   const setCurrentChannel = useChatStore((state) => state.setCurrentChannel);
   const setMessages = useChatStore((state) => state.setMessages);
   const addMessage = useChatStore((state) => state.addMessage);
+  const removeMessage = useChatStore((state) => state.removeMessage);
   const setGroupMembers = useChatStore((state) => state.setGroupMembers);
   const setMembers = useChatStore((state) => state.setMembers);
   const setChannels = useChatStore((state) => state.setChannels);
@@ -45,9 +48,11 @@ const MainLayout: React.FC = () => {
     avatar?: string;
     avatarUrl?: string;
     isOnline?: boolean;
+    groupRole?: string;
   };
 
   type ChannelMembersPayload = {
+    channelId?: number;
     members?: SocketUserPayload[];
   };
 
@@ -77,6 +82,11 @@ const MainLayout: React.FC = () => {
       };
       createdAt: string | Date;
     };
+  };
+
+  type MessageDeletePayload = {
+    channelId?: number;
+    messageId?: number;
   };
 
   type ApiMessage = {
@@ -199,6 +209,7 @@ const MainLayout: React.FC = () => {
 
     const unsubMembers = onWebSocketMessage('channel:members', (rawData) => {
       const data = rawData as ChannelMembersPayload;
+      if (data.channelId !== currentChannel?.id) return;
       if (data.members && Array.isArray(data.members)) {
         const formattedMembers = data.members.map((m) => ({
           id: m.userId ?? m.id ?? 0,
@@ -207,6 +218,7 @@ const MainLayout: React.FC = () => {
           avatarUrl: m.avatarUrl || '',
           isOnline: m.isOnline ?? true,
           role: 'member' as const,
+          groupRole: m.groupRole,
           isInCall: false
         }));
         setMembers(formattedMembers);
@@ -224,6 +236,7 @@ const MainLayout: React.FC = () => {
           avatarUrl: data.avatarUrl || '',
           isOnline: true,
           role: 'member' as const,
+          groupRole: data.groupRole,
           isInCall: false
         };
         useChatStore.setState((state) => {
@@ -268,6 +281,12 @@ const MainLayout: React.FC = () => {
       }
     });
 
+    const unsubMessageDelete = onWebSocketMessage('message:delete', (rawData) => {
+      const data = rawData as MessageDeletePayload;
+      if (data.channelId !== currentChannel?.id || typeof data.messageId !== 'number') return;
+      removeMessage(data.messageId);
+    });
+
     const unsubOnline = onWebSocketMessage('user:online', (rawData) => {
       const data = rawData as ChannelEventPayload;
       if (data.userId) updateMemberOnlineStatus(data.userId, data.isOnline ?? false);
@@ -278,9 +297,10 @@ const MainLayout: React.FC = () => {
       unsubJoined();
       unsubLeft();
       unsubMessage();
+      unsubMessageDelete();
       unsubOnline();
     };
-  }, [wsConnected, currentChannel, currentUser, setMembers, addMessage, updateMemberOnlineStatus]);
+  }, [wsConnected, currentChannel, currentUser, setMembers, addMessage, removeMessage, updateMemberOnlineStatus]);
 
   // Track previous channel
   const prevChannelIdRef = useRef<number | null>(null);
@@ -305,7 +325,8 @@ const MainLayout: React.FC = () => {
         const token = localStorage.getItem('token');
         if (!token) { setMessages([]); return; }
 
-        const response = await fetch(`${config.api.baseUrl}/api/channels/${currentChannel.id}/messages`, {
+        const params = new URLSearchParams({ limit: '50', offset: '0' });
+        const response = await fetch(`${config.api.baseUrl}/api/channels/${currentChannel.id}/messages?${params.toString()}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -349,6 +370,7 @@ const MainLayout: React.FC = () => {
             avatarUrl: m.avatarUrl || '',
             isOnline: m.isOnline ?? true,
             role: 'member' as const,
+            groupRole: m.groupRole,
             isInCall: false
           }));
           setMembers(formattedMembers);
@@ -449,6 +471,26 @@ const MainLayout: React.FC = () => {
     }
   };
 
+  const handleRecallMessage = async (messageId: number) => {
+    if (!currentChannel) return;
+    const channelId = Number(currentChannel.id);
+    if (!channelId || isNaN(channelId)) return;
+
+    const response = await fetch(`${config.api.baseUrl}/api/channels/${channelId}/messages/${messageId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.message || payload.error || '撤回消息失败');
+    }
+
+    removeMessage(messageId);
+  };
+
   // Get channel header title
   const getHeaderTitle = () => {
     if (currentChannel) {
@@ -484,10 +526,22 @@ const MainLayout: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             {currentChannel && (
-              <button className="p-2 rounded-lg hover:bg-zinc-700/50 text-zinc-400 transition-all">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
+              <button className="p-2 rounded-lg hover:bg-zinc-700/50 text-zinc-400 transition-all" title="搜索">
+                <Search className="h-5 w-5" />
+              </button>
+            )}
+            {currentGroupId && (
+              <button
+                type="button"
+                onClick={toggleMemberSidebar}
+                className={`p-2 rounded-lg transition-all ${
+                  isMemberSidebarOpen
+                    ? 'bg-zinc-700/40 text-white'
+                    : 'text-zinc-400 hover:bg-zinc-700/50 hover:text-white'
+                }`}
+                title={isMemberSidebarOpen ? '折叠成员列表' : '展开成员列表'}
+              >
+                <Users className="h-5 w-5" />
               </button>
             )}
           </div>
@@ -500,6 +554,7 @@ const MainLayout: React.FC = () => {
             <MessageArea
               currentChannel={currentChannel}
               onSendMessage={handleSendMessage}
+              onRecallMessage={handleRecallMessage}
               onBack={() => setCurrentChannel(null)}
               isLoading={isLoading}
               showHeader={false}

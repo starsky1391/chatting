@@ -48,6 +48,7 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 	messageRepo := repository.NewMessageRepository(db)
 	_ = repository.NewUserChannelRepository(db) // Reserved for future use
 	userGroupRepo := repository.NewUserGroupRepository(db)
+	groupRoleRepo := repository.NewGroupRoleRepository(db)
 	wechatBindingRepo := repository.NewWechatBindingRepository(db)
 	friendRequestRepo := repository.NewFriendRequestRepository(db)
 	friendshipRepo := repository.NewFriendshipRepository(db)
@@ -56,7 +57,7 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 
 	// Initialize services
 	authService := service.NewAuthService(userRepo, cfg, redisClient)
-	groupService := service.NewChannelGroupService(groupRepo, channelRepo, userGroupRepo, redisClient)
+	groupService := service.NewChannelGroupService(groupRepo, channelRepo, userGroupRepo, groupRoleRepo, redisClient)
 	messageService := service.NewMessageService(messageRepo, userRepo, eventPublisher)
 	wechatService := service.NewWechatService(userRepo, wechatBindingRepo, cfg)
 	friendService := service.NewFriendService(userRepo, friendRequestRepo, friendshipRepo)
@@ -148,6 +149,11 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 				groups.POST("/:id/join", groupController.JoinGroup)
 				groups.POST("/:id/leave", groupController.LeaveGroup)
 				groups.GET("/:id/members", groupController.GetGroupMembers)
+				groups.GET("/:id/roles", groupController.GetGroupRoles)
+				groups.POST("/:id/roles", groupController.CreateGroupRole)
+				groups.PUT("/:id/roles/:roleId", groupController.UpdateGroupRole)
+				groups.DELETE("/:id/roles/:roleId", groupController.DeleteGroupRole)
+				groups.PUT("/:id/members/:userId/role", groupController.UpdateMemberRole)
 				groups.GET("/:id/channels", groupController.GetGroupChannels)
 				groups.GET("/:id/channels/text", groupController.GetTextChannels)
 				groups.GET("/:id/channels/voice", groupController.GetVoiceChannels)
@@ -163,6 +169,7 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 				channels.GET("", groupController.GetAllGroups) // Redirect to groups
 				channels.GET("/:id/messages", messageController.GetChannelMessages)
 				channels.POST("/:id/messages", messageController.CreateMessage)
+				channels.DELETE("/:id/messages/:messageId", messageController.RecallMessage)
 				channels.GET("/:id/members", groupController.GetChannelMembers)              // Channel members via channel ID
 				channels.GET("/:id/active-members", groupController.GetActiveChannelMembers) // Active members in channel (Redis)
 			}
@@ -194,6 +201,7 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 				dm.GET("/conversations/:id", directMessageController.GetConversation)
 				dm.GET("/conversations/:id/messages", directMessageController.ListMessages)
 				dm.POST("/conversations/:id/messages", directMessageController.CreateMessage)
+				dm.DELETE("/conversations/:id/messages/:messageId", directMessageController.RecallMessage)
 			}
 
 			// LiveKit routes
@@ -222,6 +230,8 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 			// WebSocket route
 			socket.SetRedisClient(redisClient)
 			socket.SetUserRepository(userRepo)
+			socket.SetChannelRepository(channelRepo)
+			socket.SetUserGroupRepository(userGroupRepo)
 			protected.GET("/ws", func(c *gin.Context) {
 				socket.HandleWebSocket(hub, c)
 			})

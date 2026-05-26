@@ -70,6 +70,11 @@ type DirectMessageSocketPayload = {
   message?: DirectMessage;
 };
 
+type DirectMessageDeleteSocketPayload = {
+  conversationId?: number;
+  messageId?: number;
+};
+
 async function request<T>(endpoint: string, init: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('token');
   const response = await fetch(`${config.api.baseUrl}${endpoint}`, {
@@ -178,8 +183,20 @@ export default function DirectMessageWorkspace() {
       void loadConversations().catch(() => {});
     });
 
+    const unsubscribeDelete = onWebSocketMessage('dm:message:delete', (rawData) => {
+      const data = rawData as DirectMessageDeleteSocketPayload;
+      if (data.conversationId !== selectedConversationIDRef.current || typeof data.messageId !== 'number') {
+        void loadConversations().catch(() => {});
+        return;
+      }
+
+      setMessages((items) => items.filter((item) => item.id !== data.messageId));
+      void loadConversations().catch(() => {});
+    });
+
     return () => {
       unsubscribe();
+      unsubscribeDelete();
       cleanupWebSocket();
     };
   }, [loadConversations]);
@@ -302,6 +319,16 @@ export default function DirectMessageWorkspace() {
       setError(err instanceof Error ? err.message : 'Failed to send message');
       setMessageInput(content);
     }
+  };
+
+  const recallMessage = async (messageID: number) => {
+    if (!selectedConversation) return;
+
+    await request<null>(`/api/dm/conversations/${selectedConversation.id}/messages/${messageID}`, {
+      method: 'DELETE',
+    });
+    setMessages((items) => items.filter((item) => item.id !== messageID));
+    await loadConversations();
   };
 
   const mappedMessages = messages.map((message) => ({
@@ -526,7 +553,7 @@ export default function DirectMessageWorkspace() {
               ) : (
                 <div className="space-y-4">
                   {mappedMessages.map((message) => (
-                    <MessageBubble key={message.id} message={message} />
+                    <MessageBubble key={message.id} message={message} onRecall={recallMessage} />
                   ))}
                 </div>
               )}

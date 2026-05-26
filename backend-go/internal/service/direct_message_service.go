@@ -13,6 +13,8 @@ import (
 	"chat-backend/pkg/logger"
 )
 
+var ErrDirectMessageConversationScope = errors.New("direct message does not belong to conversation")
+
 type DirectMessageService struct {
 	userRepo         *repository.UserRepository
 	friendshipRepo   *repository.FriendshipRepository
@@ -164,6 +166,48 @@ func (s *DirectMessageService) CreateMessage(userID, conversationID uint, input 
 	}
 
 	return &response, nil
+}
+
+func (s *DirectMessageService) RecallMessage(userID, conversationID, messageID uint) error {
+	conversation, err := s.conversationRepo.FindByIDForUser(conversationID, userID)
+	if err != nil {
+		return err
+	}
+
+	message, err := s.messageRepo.FindByID(messageID)
+	if err != nil {
+		return err
+	}
+	if message.ConversationID != conversationID {
+		return ErrDirectMessageConversationScope
+	}
+	if message.SenderID != userID {
+		return ErrMessageNotOwned
+	}
+	if time.Since(message.CreatedAt) > 30*time.Second {
+		return ErrMessageRecallWindow
+	}
+	if err := s.messageRepo.Delete(message); err != nil {
+		return err
+	}
+
+	memberIDs := directConversationMemberIDs(conversation.Members)
+	events.DispatchDirectMessageDeletedToGlobalHub(conversationID, messageID, memberIDs)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := s.publisher.PublishDirectMessageDeleted(ctx, conversationID, messageID, memberIDs); err != nil {
+		logger.Warn("Failed to publish direct message delete event: %v", err)
+	}
+	return nil
+}
+
+func directConversationMemberIDs(members []model.User) []uint {
+	memberIDs := make([]uint, 0, len(members))
+	for _, member := range members {
+		memberIDs = append(memberIDs, member.ID)
+	}
+	return memberIDs
 }
 
 func directPairKey(userA, userB uint) string {

@@ -2,12 +2,19 @@ package service
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"chat-backend/internal/events"
 	"chat-backend/internal/model"
 	"chat-backend/internal/repository"
 	"chat-backend/pkg/logger"
+)
+
+var (
+	ErrMessageNotOwned     = errors.New("message is not owned by current user")
+	ErrMessageRecallWindow = errors.New("message recall window has expired")
+	ErrMessageChannelScope = errors.New("message does not belong to channel")
 )
 
 type MessageService struct {
@@ -63,8 +70,8 @@ func (s *MessageService) CreateMessage(input CreateMessageInput) (*model.Message
 	return &response, nil
 }
 
-func (s *MessageService) GetChannelMessages(channelID uint, limit, offset int) ([]model.MessageResponse, error) {
-	messages, err := s.messageRepo.FindByChannelID(channelID, limit, offset)
+func (s *MessageService) GetChannelMessages(channelID uint, limit, offset int, day, startAt, endAt *time.Time) ([]model.MessageResponse, error) {
+	messages, err := s.messageRepo.FindByChannelID(channelID, limit, offset, day, startAt, endAt)
 	if err != nil {
 		return nil, err
 	}
@@ -79,4 +86,34 @@ func (s *MessageService) GetChannelMessages(channelID uint, limit, offset int) (
 
 func (s *MessageService) GetMessageByID(id uint) (*model.Message, error) {
 	return s.messageRepo.FindByID(id)
+}
+
+func (s *MessageService) RecallMessage(channelID, messageID, userID uint) error {
+	message, err := s.messageRepo.FindByID(messageID)
+	if err != nil {
+		return err
+	}
+	if message.ChannelID != channelID {
+		return ErrMessageChannelScope
+	}
+	if message.SenderID != userID {
+		return ErrMessageNotOwned
+	}
+	if time.Since(message.CreatedAt) > 30*time.Second {
+		return ErrMessageRecallWindow
+	}
+
+	if err := s.messageRepo.Delete(message); err != nil {
+		return err
+	}
+
+	events.DispatchChannelMessageDeletedToGlobalHub(channelID, messageID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := s.publisher.PublishChannelMessageDeleted(ctx, channelID, messageID); err != nil {
+		logger.Warn("Failed to publish channel message delete event: %v", err)
+	}
+
+	return nil
 }

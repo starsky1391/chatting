@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chatting 实时聊天系统 - 技术报告</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+            mono: ['SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root {
+      --paper: #f3e6d4;
+      --paper-soft: #fbf5ec;
+      --paper-card: #fffaf3;
+      --ink: #2b211a;
+      --muted: #7c6a58;
+      --line: #dec8ad;
+      --line-soft: #eadbc8;
+      --coffee: #4a2f20;
+      --caramel: #b9783b;
+      --sage: #5f745f;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-section { animation: fadeIn 0.6s ease-out forwards; }
+    html { scroll-behavior: smooth; }
+    body {
+      background:
+        linear-gradient(90deg, rgba(74, 47, 32, 0.035) 1px, transparent 1px),
+        linear-gradient(rgba(74, 47, 32, 0.03) 1px, transparent 1px),
+        var(--paper);
+      background-size: 44px 44px, 44px 44px, auto;
+      color: var(--ink);
+    }
+    header {
+      background:
+        linear-gradient(180deg, #e4c6a2 0%, rgba(243, 230, 212, 0.88) 76%, rgba(243, 230, 212, 0) 100%);
+      border-bottom: 1px solid rgba(74, 47, 32, 0.08);
+    }
+    main > div {
+      background: rgba(255, 250, 243, 0.66);
+      box-shadow: 0 0 0 1px rgba(222, 200, 173, 0.5);
+      padding-inline: clamp(0px, 3vw, 44px);
+    }
+    section { border-color: var(--line-soft) !important; }
+    pre.mermaid { background: transparent; color: var(--ink); }
+    .mermaid svg { max-width: 100%; height: auto; }
+    .bg-white, .bg-neutral-50 { background-color: var(--paper-card) !important; }
+    .bg-neutral-100 { background-color: #eadbc8 !important; }
+    .bg-neutral-800, .bg-neutral-900, .bg-neutral-950 { background-color: var(--coffee) !important; }
+    .text-neutral-950, .text-neutral-900 { color: var(--ink) !important; }
+    .text-neutral-800 { color: #3c2a20 !important; }
+    .text-neutral-600, .text-neutral-500 { color: var(--muted) !important; }
+    .text-neutral-400, .text-neutral-300 { color: #a58b70 !important; }
+    .border-neutral-100, .border-neutral-200 { border-color: var(--line-soft) !important; }
+    .decoration-neutral-300 { text-decoration-color: #bf9d79 !important; }
+    .hover\:decoration-neutral-900:hover { text-decoration-color: var(--coffee) !important; }
+    .hover\:bg-neutral-50:hover { background-color: #efe0cc !important; }
+    .hover\:text-neutral-950:hover { color: var(--coffee) !important; }
+    .shadow-sm { box-shadow: 0 18px 50px rgba(74, 47, 32, 0.08) !important; }
+    a.bg-neutral-950 {
+      background: var(--coffee) !important;
+      color: #fffaf3 !important;
+    }
+    a.bg-neutral-950:hover { background: #6a432d !important; }
+    .bg-blue-50 {
+      background-color: #eef2e7 !important;
+      border-color: #c7d2ba !important;
+    }
+    .text-blue-800 { color: #405640 !important; }
+    @media print {
+      .no-print { display: none !important; }
+      section { break-inside: avoid; }
+      body { color: #111; }
+    }
+  </style>
+</head>
+<body class="text-[#2b211a] antialiased">
+  <nav class="no-print fixed right-6 top-6 z-20 hidden max-h-[calc(100vh-3rem)] w-64 overflow-auto rounded-xl border border-neutral-100 bg-white/90 p-3 shadow-sm backdrop-blur xl:block">
+    <p class="mb-2 px-3 font-mono text-xs uppercase tracking-widest text-neutral-300">Contents</p>
+    <a href="#当前能力" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">01</span>当前能力</a>
+<a href="#技术栈" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">02</span>技术栈</a>
+<a href="#快速启动" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">03</span>快速启动</a>
+<a href="#演示数据" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">04</span>演示数据</a>
+<a href="#项目结构" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">05</span>项目结构</a>
+<a href="#数据库-er-图" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">06</span>数据库 ER 图</a>
+<a href="#服务端口" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">07</span>服务端口</a>
+<a href="#常用命令" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">08</span>常用命令</a>
+<a href="#主要环境变量" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">09</span>主要环境变量</a>
+<a href="#api-文档" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">10</span>API 文档</a>
+<a href="#优化演进总结" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">11</span>优化演进总结</a>
+<a href="#注意事项" class="block rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950"><span class="mr-3 font-mono text-xs text-neutral-300">12</span>注意事项</a>
+  </nav>
+
+  <header class="flex min-h-[70vh] flex-col justify-center px-6 py-24">
+    <div class="mx-auto w-full max-w-[720px]">
+      <p class="mb-4 text-sm uppercase tracking-widest text-neutral-400">Technical Report</p>
+      <h1 class="mb-8 text-4xl font-bold leading-[1.1] tracking-tight md:text-5xl lg:text-6xl">
+        Chatting 实时聊天系统
+        <br>
+        <span class="text-neutral-500">README 生成版项目报告</span>
+      </h1>
+      <p class="max-w-xl text-xl leading-relaxed text-neutral-600">这份文档基于 <strong class="font-medium text-[#1a1a1a]">README.md</strong> 生成，并按技术报告形式重新组织：先说明系统能力，再呈现部署、数据模型和演进原因。</p>
+      <div class="mt-12 flex flex-wrap items-center gap-4 text-sm text-neutral-400">
+        <span>实时通信</span><span class="h-1 w-1 rounded-full bg-neutral-300"></span>
+        <span>私信与好友</span><span class="h-1 w-1 rounded-full bg-neutral-300"></span>
+        <span>语音频道</span><span class="h-1 w-1 rounded-full bg-neutral-300"></span>
+        <span>Docker 部署</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="px-6 pb-32">
+    <div class="mx-auto max-w-[720px]">
+      <section id="当前能力" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">01</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">当前能力</h2>
+    <ul class="mb-8 space-y-3 text-neutral-600">
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>用户注册、登录、资料编辑、头像上传、在线状态和心跳</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>Group/频道体系：创建 group、加入 group、文本频道、语音频道、频道成员</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>实时消息：频道消息和私信通过 WebSocket 推送，跨后端实例事件通过 Kafka/Redpanda fanout</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>私信和好友：好友搜索、好友申请、好友列表、非好友私信提示</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>Group 权限：所有者、默认管理员、嘉宾、自定义身份组、成员身份设置</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>语音频道：LiveKit 语音加入、离开、频道人数限制、实时参与者展示</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>管理后台：用户、group、频道消息、私信消息和统计信息管理</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>文件上传：图片上传和消息图片展示</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>演示数据：内置 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">seed-demo</code>，可生成百人 group、百条以上聊天记录、图片消息和私信会话</span></li>
+</ul>
+  </section>
+<section id="技术栈" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">02</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">技术栈</h2>
+    <h3 id="后端" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">后端</h3>
+<ul class="mb-8 space-y-3 text-neutral-600">
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>Go 1.23</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>Gin</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>GORM</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>PostgreSQL 16</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>Redis 7</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>Kafka 兼容事件总线：Redpanda</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>WebSocket：<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">gorilla/websocket</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>LiveKit</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>JWT</span></li>
+</ul>
+<h3 id="前端" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">前端</h3>
+<ul class="mb-8 space-y-3 text-neutral-600">
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>Next.js 16</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>React 19</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>TypeScript</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>Tailwind CSS 4</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>Zustand</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>lucide-react</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>livekit-client</span></li>
+</ul>
+  </section>
+<section id="快速启动" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">03</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">快速启动</h2>
+    <h3 id="docker-compose" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">Docker Compose</h3>
+<p class="mb-6 leading-relaxed text-neutral-600">推荐从项目根目录启动：</p>
+<div class="my-6"><div class="rounded-t-lg bg-neutral-800 px-4 py-2 font-mono text-xs text-neutral-400">bash</div><pre class="overflow-x-auto rounded-b-lg bg-[#171717] p-4 text-sm leading-relaxed text-neutral-100"><code>docker compose up -d</code></pre></div>
+<p class="mb-6 leading-relaxed text-neutral-600">访问地址：</p>
+<ul class="mb-8 space-y-3 text-neutral-600">
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>HTTP: <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">http://localhost:8080</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>HTTPS: <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">https://localhost:8443</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>后端健康检查: <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">http://localhost:3001/health</code></span></li>
+</ul>
+<p class="mb-6 leading-relaxed text-neutral-600">如果需要重新构建某个服务，优先只构建受影响容器：</p>
+<div class="my-6"><div class="rounded-t-lg bg-neutral-800 px-4 py-2 font-mono text-xs text-neutral-400">bash</div><pre class="overflow-x-auto rounded-b-lg bg-[#171717] p-4 text-sm leading-relaxed text-neutral-100"><code>docker compose build backend
+docker compose up -d backend
+
+docker compose build frontend
+docker compose up -d frontend nginx</code></pre></div>
+<h3 id="windows-本地启动" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">Windows 本地启动</h3>
+<p class="mb-6 leading-relaxed text-neutral-600">项目根目录提供 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">start.bat</code>：</p>
+<div class="my-6"><div class="rounded-t-lg bg-neutral-800 px-4 py-2 font-mono text-xs text-neutral-400">bat</div><pre class="overflow-x-auto rounded-b-lg bg-[#171717] p-4 text-sm leading-relaxed text-neutral-100"><code>start.bat</code></pre></div>
+<p class="mb-6 leading-relaxed text-neutral-600">可选择：</p>
+<ul class="mb-8 space-y-3 text-neutral-600">
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>前端 + Go 后端</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>仅 Go 后端</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>仅前端</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>Docker Compose</span></li>
+</ul>
+<h3 id="linux-服务器部署" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">Linux 服务器部署</h3>
+<div class="my-6"><div class="rounded-t-lg bg-neutral-800 px-4 py-2 font-mono text-xs text-neutral-400">bash</div><pre class="overflow-x-auto rounded-b-lg bg-[#171717] p-4 text-sm leading-relaxed text-neutral-100"><code>chmod +x deploy.sh deploy-quick.sh
+./deploy.sh</code></pre></div>
+<p class="mb-6 leading-relaxed text-neutral-600">快速部署：</p>
+<div class="my-6"><div class="rounded-t-lg bg-neutral-800 px-4 py-2 font-mono text-xs text-neutral-400">bash</div><pre class="overflow-x-auto rounded-b-lg bg-[#171717] p-4 text-sm leading-relaxed text-neutral-100"><code>./deploy-quick.sh</code></pre></div>
+<p class="mb-6 leading-relaxed text-neutral-600">部署细节见 <a class="text-neutral-950 underline decoration-neutral-300 underline-offset-4 hover:decoration-neutral-900" href="./DOCKER_DEPLOY.md">DOCKER_DEPLOY.md</a>。</p>
+  </section>
+<section id="演示数据" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">04</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">演示数据</h2>
+    <p class="mb-6 leading-relaxed text-neutral-600">后端镜像会同时构建 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">seed-demo</code> 命令。它会生成一个便于演示的固定场景：</p>
+<ul class="mb-8 space-y-3 text-neutral-600">
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>账号名：<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">foya</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>邮箱：<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">foya@example.com</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>密码：<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">123456</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>Group：<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">test</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>100 个 group 成员</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span><code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">general</code> 文本频道 128 条消息，其中包含图片消息</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span><code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">voice-demo</code> 语音频道</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span><code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">foya</code> 与 5 个演示用户的私信会话</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>其他用户邮箱：<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">demo001@test.com</code> 到 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">demo099@test.com</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>其他用户密码：<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">123456</code></span></li>
+</ul>
+<p class="mb-6 leading-relaxed text-neutral-600">执行：</p>
+<div class="my-6"><div class="rounded-t-lg bg-neutral-800 px-4 py-2 font-mono text-xs text-neutral-400">bash</div><pre class="overflow-x-auto rounded-b-lg bg-[#171717] p-4 text-sm leading-relaxed text-neutral-100"><code>docker compose exec backend ./seed-demo</code></pre></div>
+<p class="mb-6 leading-relaxed text-neutral-600">本地非 Docker 后端也可以执行：</p>
+<div class="my-6"><div class="rounded-t-lg bg-neutral-800 px-4 py-2 font-mono text-xs text-neutral-400">bash</div><pre class="overflow-x-auto rounded-b-lg bg-[#171717] p-4 text-sm leading-relaxed text-neutral-100"><code>cd backend-go
+go run ./cmd/seed-demo</code></pre></div>
+<p class="mb-6 leading-relaxed text-neutral-600">该命令可重复运行，会更新演示账号、演示 group、成员、频道，并重建 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">test/general</code> 的演示消息和 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">foya</code> 的演示私信。</p>
+  </section>
+<section id="项目结构" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">05</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">项目结构</h2>
+    <div class="my-6"><div class="rounded-t-lg bg-neutral-800 px-4 py-2 font-mono text-xs text-neutral-400">text</div><pre class="overflow-x-auto rounded-b-lg bg-[#171717] p-4 text-sm leading-relaxed text-neutral-100"><code>chatting/
+├── backend-go/
+│   ├── cmd/
+│   │   ├── server/          # 后端服务入口
+│   │   └── seed-demo/       # 演示数据生成命令
+│   ├── internal/
+│   │   ├── config/          # 配置加载
+│   │   ├── controller/      # HTTP 控制器
+│   │   ├── events/          # Kafka/Redpanda 事件总线
+│   │   ├── livekit/         # LiveKit token 等能力
+│   │   ├── middleware/      # CORS、JWT、管理员鉴权
+│   │   ├── model/           # GORM 模型和响应结构
+│   │   ├── redis/           # Redis 客户端
+│   │   ├── repository/      # 数据访问层
+│   │   ├── router/          # Gin 路由
+│   │   ├── service/         # 业务逻辑
+│   │   └── socket/          # WebSocket hub 和连接处理
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── app/             # Next.js App Router 页面
+│   │   ├── components/      # UI 组件
+│   │   ├── hooks/           # React hooks
+│   │   ├── lib/             # API、WebSocket、工具函数
+│   │   └── store/           # Zustand 状态
+│   └── Dockerfile
+├── docker/
+│   ├── nginx/               # Nginx 反向代理和 SSL
+│   ├── postgres/            # 数据库初始化 SQL
+│   └── livekit.yaml         # LiveKit 配置
+├── docker-compose.yml
+├── deploy.sh
+├── deploy-quick.sh
+└── start.bat</code></pre></div>
+  </section>
+<section id="数据库-er-图" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">06</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">数据库 ER 图</h2>
+    <p class="mb-6 leading-relaxed text-neutral-600">主要业务表由 Go 后端的 GORM 模型自动迁移生成。所有带 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">gorm.Model</code> 的表都会包含 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">id</code>、<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">created_at</code>、<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">updated_at</code>、<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">deleted_at</code>，其中 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">deleted_at</code> 用于软删除。</p>
+<div class="my-8 rounded-lg border border-neutral-100 bg-neutral-50 p-5 md:p-8"><pre class="mermaid">erDiagram
+    USERS {
+        uint id PK
+        string username
+        string email UK
+        string password
+        string avatar
+        string avatar_url
+        string role
+        string bio
+        time last_seen
+        bool is_online
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    CHANNEL_GROUPS {
+        uint id PK
+        string name
+        string description
+        string icon
+        uint owner_id FK
+        string invite_code UK
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    CHANNELS {
+        uint id PK
+        string name
+        string type
+        string description
+        uint group_id FK
+        int position
+        uint created_by
+        int max_members
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    MESSAGES {
+        uint id PK
+        string content
+        uint sender_id FK
+        uint channel_id FK
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    USER_GROUPS {
+        uint id PK
+        uint user_id FK
+        uint group_id FK
+        string role
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    USER_CHANNELS {
+        uint id PK
+        uint user_id FK
+        uint channel_id FK
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    GROUP_ROLES {
+        uint id PK
+        uint group_id FK
+        string name
+        string description
+        string color
+        int position
+        bool is_default
+        bool is_system
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    FRIEND_REQUESTS {
+        uint id PK
+        uint requester_id FK
+        uint addressee_id FK
+        string status
+        string message
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    FRIENDSHIPS {
+        uint id PK
+        uint user_id FK
+        uint friend_id FK
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    DIRECT_CONVERSATIONS {
+        uint id PK
+        string pair_key UK
+        time last_message_at
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    DIRECT_CONVERSATION_MEMBERS {
+        uint id PK
+        uint direct_conversation_id FK
+        uint user_id FK
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    DIRECT_MESSAGES {
+        uint id PK
+        uint conversation_id FK
+        uint sender_id FK
+        string content
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    USERS ||--o{ CHANNEL_GROUPS : owns
+    CHANNEL_GROUPS ||--o{ CHANNELS : contains
+    CHANNEL_GROUPS ||--o{ USER_GROUPS : has_members
+    USERS ||--o{ USER_GROUPS : joins
+    CHANNEL_GROUPS ||--o{ GROUP_ROLES : defines
+
+    CHANNELS ||--o{ MESSAGES : has
+    USERS ||--o{ MESSAGES : sends
+    CHANNELS ||--o{ USER_CHANNELS : has_active_members
+    USERS ||--o{ USER_CHANNELS : active_in
+
+    USERS ||--o{ FRIEND_REQUESTS : requests
+    USERS ||--o{ FRIEND_REQUESTS : receives
+    USERS ||--o{ FRIENDSHIPS : user_side
+    USERS ||--o{ FRIENDSHIPS : friend_side
+
+    DIRECT_CONVERSATIONS ||--o{ DIRECT_CONVERSATION_MEMBERS : has_members
+    USERS ||--o{ DIRECT_CONVERSATION_MEMBERS : participates
+    DIRECT_CONVERSATIONS ||--o{ DIRECT_MESSAGES : has
+    USERS ||--o{ DIRECT_MESSAGES : sends</pre></div>
+  </section>
+<section id="服务端口" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">07</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">服务端口</h2>
+    <div class="my-8 overflow-hidden rounded-lg border border-neutral-200"><table class="w-full text-sm">
+<thead><tr class="border-b border-neutral-200 bg-neutral-50"><th class="px-4 py-3 text-left font-medium text-neutral-500">服务</th><th class="px-4 py-3 text-left font-medium text-neutral-500">默认端口</th><th class="px-4 py-3 text-left font-medium text-neutral-500">说明</th></tr></thead>
+<tbody>
+<tr class="border-b border-neutral-100 last:border-0"><td class="px-4 py-3 align-top text-neutral-600">nginx</td><td class="px-4 py-3 align-top text-neutral-600">8080 / 8443</td><td class="px-4 py-3 align-top text-neutral-600">前端、API、WebSocket、LiveKit 反向代理</td></tr>
+<tr class="border-b border-neutral-100 last:border-0"><td class="px-4 py-3 align-top text-neutral-600">frontend</td><td class="px-4 py-3 align-top text-neutral-600">3000</td><td class="px-4 py-3 align-top text-neutral-600">Next.js 容器内部服务</td></tr>
+<tr class="border-b border-neutral-100 last:border-0"><td class="px-4 py-3 align-top text-neutral-600">backend</td><td class="px-4 py-3 align-top text-neutral-600">3001</td><td class="px-4 py-3 align-top text-neutral-600">Go API 和 WebSocket</td></tr>
+<tr class="border-b border-neutral-100 last:border-0"><td class="px-4 py-3 align-top text-neutral-600">postgres</td><td class="px-4 py-3 align-top text-neutral-600">5432</td><td class="px-4 py-3 align-top text-neutral-600">PostgreSQL</td></tr>
+<tr class="border-b border-neutral-100 last:border-0"><td class="px-4 py-3 align-top text-neutral-600">redis</td><td class="px-4 py-3 align-top text-neutral-600">6379</td><td class="px-4 py-3 align-top text-neutral-600">在线状态、语音频道活跃成员等</td></tr>
+<tr class="border-b border-neutral-100 last:border-0"><td class="px-4 py-3 align-top text-neutral-600">kafka</td><td class="px-4 py-3 align-top text-neutral-600">19092 / 9644</td><td class="px-4 py-3 align-top text-neutral-600">Redpanda Kafka 外部端口和管理端口</td></tr>
+<tr class="border-b border-neutral-100 last:border-0"><td class="px-4 py-3 align-top text-neutral-600">livekit</td><td class="px-4 py-3 align-top text-neutral-600">7880 / 50000-50200 UDP</td><td class="px-4 py-3 align-top text-neutral-600">语音信令和 WebRTC 媒体端口</td></tr>
+</tbody></table></div>
+  </section>
+<section id="常用命令" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">08</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">常用命令</h2>
+    <div class="my-6"><div class="rounded-t-lg bg-neutral-800 px-4 py-2 font-mono text-xs text-neutral-400">bash</div><pre class="overflow-x-auto rounded-b-lg bg-[#171717] p-4 text-sm leading-relaxed text-neutral-100"><code># 查看服务状态
+docker compose ps
+
+# 查看日志
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f nginx
+
+# 后端测试
+cd backend-go
+go test ./...
+
+# 前端检查和构建
+cd frontend
+npm run lint
+npm run build
+
+# 进入数据库
+docker compose exec postgres psql -U postgres -d chat_app
+
+# 执行演示 seed
+docker compose exec backend ./seed-demo</code></pre></div>
+  </section>
+<section id="主要环境变量" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">09</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">主要环境变量</h2>
+    <p class="mb-6 leading-relaxed text-neutral-600">根目录 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">.env.example</code> 用于 Docker Compose；<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">backend-go/.env.example</code> 用于本地 Go 后端；<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">frontend/.env.local.example</code> 用于本地 Next.js 前端。</p>
+<p class="mb-6 leading-relaxed text-neutral-600">关键项：</p>
+<ul class="mb-8 space-y-3 text-neutral-600">
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span><code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">DB_USERNAME</code> / <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">DB_PASSWORD</code> / <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">DB_NAME</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span><code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">REDIS_PASSWORD</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span><code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">JWT_SECRET</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span><code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">ADMIN_EMAIL</code> / <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">ADMIN_USERNAME</code> / <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">ADMIN_PASSWORD</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span><code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">KAFKA_BROKERS</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span><code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">NEXT_PUBLIC_API_URL</code></span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span><code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">NGINX_HTTP_PORT</code> / <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">NGINX_HTTPS_PORT</code></span></li>
+</ul>
+<p class="mb-6 leading-relaxed text-neutral-600">生产环境必须替换默认密码和 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">JWT_SECRET</code>。</p>
+  </section>
+<section id="api-文档" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">10</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">API 文档</h2>
+    <p class="mb-6 leading-relaxed text-neutral-600">OpenAPI 文件位于 <a class="text-neutral-950 underline decoration-neutral-300 underline-offset-4 hover:decoration-neutral-900" href="./api-docs.json">api-docs.json</a>。</p>
+  </section>
+<section id="优化演进总结" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">11</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">优化演进总结</h2>
+    <p class="mb-6 leading-relaxed text-neutral-600">这个项目最开始更像一个基础聊天室：有登录、频道和消息，但缺少真实社区产品需要的关系链、管理能力、语音状态连续性和可演示数据。后续优化的核心，是把它从“能聊天”推进到“可长期使用、可部署、可演示、可运维”。</p>
+<h3 id="后端-go-重构" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">后端 Go 重构</h3>
+<p class="mb-6 leading-relaxed text-neutral-600">早期系统更偏简单请求响应和单机实时推送。后端迁移到 Go/Gin 后，API、WebSocket Hub、服务层和仓储层被重新拆清楚。</p>
+<p class="mb-6 leading-relaxed text-neutral-600">这样做是为了让实时连接、消息持久化、权限校验和部署健康检查都有稳定边界。后续接入 Kafka/Redpanda、LiveKit、管理后台、私信和权限系统时，不会继续把逻辑堆在同一个模块里。</p>
+<h3 id="实时链路" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">实时链路</h3>
+<p class="mb-6 leading-relaxed text-neutral-600">频道消息和私信都改成数据库持久化后再通过 WebSocket 推送，跨后端实例的事件通过 Kafka/Redpanda fanout。</p>
+<p class="mb-6 leading-relaxed text-neutral-600">这样可以解决“消息要刷新才出现”“单机内存广播无法横向扩展”“频道消息和私信实时行为不一致”等问题。Kafka/Redpanda 的作用不是替代 WebSocket，而是让多个后端实例之间共享事件。</p>
+<h3 id="私信与好友" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">私信与好友</h3>
+<p class="mb-6 leading-relaxed text-neutral-600">系统补了单独私信界面、好友搜索、好友申请、好友列表和非好友私信提示。</p>
+<p class="mb-6 leading-relaxed text-neutral-600">这样频道聊天和一对一沟通不会混在一起，用户能清楚知道当前关系状态。允许非好友私信，同时用黄色提示提醒添加好友，是为了保留沟通自由度，但不让关系状态变得隐形。</p>
+<h3 id="group-与权限" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">Group 与权限</h3>
+<p class="mb-6 leading-relaxed text-neutral-600">Group 从简单创建和加入，扩展到 group 设置、头像、名称、频道编辑、语音频道人数限制、成员身份组和 owner/admin/guest 排序。</p>
+<p class="mb-6 leading-relaxed text-neutral-600">这样做是因为群组产品后期一定会遇到治理问题。权限模型越早稳定，后续加频道管理、成员管理、后台管理时越不容易互相冲突。</p>
+<h3 id="语音频道体验" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">语音频道体验</h3>
+<p class="mb-6 leading-relaxed text-neutral-600">语音状态从页面局部行为改成全局控件。加入语音后切换页面不会断开，同时补了参与者实时显示、频道人数限制、麦克风输入音量和接收音量控制。</p>
+<p class="mb-6 leading-relaxed text-neutral-600">这样语音频道更接近常见 IM/社区软件的直觉：语音是一个持续状态，不应该因为用户浏览资料、私信或切换频道列表就中断。</p>
+<h3 id="消息历史与撤回" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">消息历史与撤回</h3>
+<p class="mb-6 leading-relaxed text-neutral-600">频道历史支持分页、日期筛选和向上滚动加载更早消息。频道消息和私信都加入了 30 秒撤回功能，并由后端校验发送者、所属频道/会话和时间窗口。</p>
+<p class="mb-6 leading-relaxed text-neutral-600">这样既解决大量消息堆积时的浏览问题，也避免“前端隐藏但数据库仍然存在”的假撤回。撤回是软删除，刷新后不会再出现，也会通过实时事件同步到其他在线客户端。</p>
+<h3 id="管理后台与演示数据" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">管理后台与演示数据</h3>
+<p class="mb-6 leading-relaxed text-neutral-600">管理后台从简单列表改成按频道消息、私信会话等维度折叠分组，避免信息过多时堆成一片。内置 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">seed-demo</code> 可以生成百人 group、图片消息、历史消息和私信场景。</p>
+<p class="mb-6 leading-relaxed text-neutral-600">这样可以稳定演示复杂场景，也方便复现问题。例如成员排序、历史消息加载、私信提示、图片消息和后台折叠都能用同一套数据验证。</p>
+<h3 id="部署与文档" class="mb-5 mt-10 text-lg font-medium tracking-tight text-neutral-950">部署与文档</h3>
+<p class="mb-6 leading-relaxed text-neutral-600">部署脚本补了镜像和构建缓存清理策略，同时保留数据库、Redis 和上传文件等业务数据卷。<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">start.bat</code> 增加 Docker 启动选项，文档补了 Docker 部署说明、ER 图和 HTML 技术报告。</p>
+<p class="mb-6 leading-relaxed text-neutral-600">这样项目不只是在本机能跑，也更容易部署到服务器、排查 502/容器重启/数据库密码不一致等问题，并方便别人接手。</p>
+<p class="mb-6 leading-relaxed text-neutral-600">这些优化背后的共同原因是：聊天系统的问题通常不是“能不能发一条消息”，而是多人、长时间、多页面、多服务、多数据量下还能不能保持清楚、实时、可恢复。每一次调整都围绕这个目标：降低混乱，提高一致性，并让部署和演示可重复。</p>
+  </section>
+<section id="注意事项" class="animate-section border-t border-neutral-100 py-16">
+    <span class="mb-4 block font-mono text-xs tracking-widest text-neutral-300">12</span>
+    <h2 class="mb-8 text-2xl font-semibold tracking-tight text-neutral-950">注意事项</h2>
+    <ul class="mb-8 space-y-3 text-neutral-600">
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>数据保存在 Docker volumes：<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">postgres_data</code>、<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">redis_data</code>、<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">backend_uploads</code>。不要为了清镜像直接删除 Docker 存储目录。</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>清理镜像和构建缓存不会删除数据库数据；<code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">docker compose down -v</code> 才会删除 compose 管理的数据卷。</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>服务器部署时，脚本文件必须是 LF 换行，否则 Linux 可能出现 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">cannot execute: required file not found</code>。</span></li>
+<li class="flex gap-3 leading-relaxed"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300"></span><span>LiveKit 需要开放 TCP <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">7880</code> 和 UDP <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">50000-50200</code>。如果走公网 HTTPS，请确保 Nginx 的 <code class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.9em] text-neutral-800">/livekit/</code> 代理可用。</span></li>
+</ul>
+  </section>
+      <footer class="border-t border-neutral-100 py-16 text-center">
+        <p class="text-sm text-neutral-400">Generated from README.md. Style adapted from the provided technical report sample.</p>
+      </footer>
+    </div>
+  </main>
+
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+  </script>
+</body>
+</html>

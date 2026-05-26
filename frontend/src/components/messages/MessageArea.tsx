@@ -1,11 +1,12 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import MessageBubble from './MessageBubble';
 import { useChatStore } from '../../store/useChatStore';
 import { config } from '@/lib/config';
 import { SkeletonMessageList } from '../ui/Skeleton';
 import { onWebSocketMessage } from '@/lib/socket';
+import { CalendarDays, History, Loader2, RotateCcw, X } from 'lucide-react';
 
 type Channel = {
   id: number;
@@ -19,9 +20,25 @@ type CallParticipant = {
   avatarUrl?: string;
 };
 
+type ApiMessage = {
+  id: number;
+  content: {
+    type: string;
+    body: string;
+  };
+  sender?: {
+    id?: number;
+    username?: string;
+    avatar?: string;
+    avatarUrl?: string;
+  };
+  createdAt: string | Date;
+};
+
 interface MessageAreaProps {
   currentChannel: Channel | null;
   onSendMessage: (content: string) => void;
+  onRecallMessage?: (messageId: number) => Promise<void>;
   onBack: () => void;
   isLoading?: boolean;
   showHeader?: boolean;
@@ -30,10 +47,13 @@ interface MessageAreaProps {
 const MessageArea: React.FC<MessageAreaProps> = ({
   currentChannel,
   onSendMessage,
+  onRecallMessage,
   isLoading = false,
 }) => {
   const {
     messages,
+    currentUser,
+    setMessages,
     isInCall,
     activeVoiceChannel,
     voiceParticipants,
@@ -43,17 +63,45 @@ const MessageArea: React.FC<MessageAreaProps> = ({
   const [input, setInput] = useState('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [pageSize, setPageSize] = useState(50);
+  const [historyDate, setHistoryDate] = useState('');
+  const [activeHistoryDate, setActiveHistoryDate] = useState('');
+  const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const [callParticipants, setCallParticipants] = useState<CallParticipant[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const pendingScrollRestoreRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => {
-    scrollToBottom();
+    if (shouldAutoScrollRef.current) {
+      scrollToBottom();
+    }
   }, [messages]);
+
+  useLayoutEffect(() => {
+    const pending = pendingScrollRestoreRef.current;
+    const list = messageListRef.current;
+    if (!pending || !list) return;
+
+    list.scrollTop = list.scrollHeight - pending.scrollHeight + pending.scrollTop;
+    pendingScrollRestoreRef.current = null;
+  }, [messages]);
+
+  useEffect(() => {
+    shouldAutoScrollRef.current = true;
+    setHistoryDate('');
+    setActiveHistoryDate('');
+    setIsHistoryPanelOpen(false);
+    setHasMoreHistory(true);
+  }, [currentChannel?.id]);
 
   useEffect(() => {
     if (currentChannel?.type !== 'voice' || !currentChannel.id) {
@@ -141,6 +189,119 @@ const MessageArea: React.FC<MessageAreaProps> = ({
     }
   };
 
+  const mapMessages = (items: ApiMessage[]) => items.map((message) => ({
+    ...message,
+    sender: {
+      id: message.sender?.id || 0,
+      username: message.sender?.username || 'Unknown',
+      avatar: message.sender?.avatar || '',
+      avatarUrl: message.sender?.avatarUrl || '',
+      email: '',
+      isOnline: true,
+      role: 'member' as const,
+    },
+    isOwn: message.sender?.id === (currentUser?.id || 0),
+  }));
+
+  const getDateRange = (date: string) => {
+    const start = new Date(`${date}T00:00:00`);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 1);
+    return {
+      startAt: start.toISOString(),
+      endAt: end.toISOString(),
+    };
+  };
+
+  const fetchChannelMessages = async (options: { offset: number; limit: number; date?: string }) => {
+    if (!currentChannel) return [];
+    const token = localStorage.getItem('token');
+    if (!token) return [];
+
+    const params = new URLSearchParams({
+      limit: String(options.limit),
+      offset: String(options.offset),
+    });
+    if (options.date) {
+      params.set('date', options.date);
+      const range = getDateRange(options.date);
+      params.set('startAt', range.startAt);
+      params.set('endAt', range.endAt);
+    }
+
+    const response = await fetch(`${config.api.baseUrl}/api/channels/${currentChannel.id}/messages?${params.toString()}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new Error('加载历史消息失败');
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    const items = Array.isArray(payload.data) ? payload.data : [];
+    return mapMessages(items);
+  };
+
+  const reloadLatestMessages = async (date = activeHistoryDate) => {
+    if (!currentChannel || currentChannel.type !== 'text') return;
+    setIsHistoryLoading(true);
+    shouldAutoScrollRef.current = !date;
+    try {
+      const nextMessages = await fetchChannelMessages({ offset: 0, limit: pageSize, date });
+      setMessages(nextMessages);
+      setHasMoreHistory(nextMessages.length >= pageSize);
+      setActiveHistoryDate(date);
+      setIsHistoryPanelOpen(false);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const loadOlderMessages = async () => {
+    if (!currentChannel || currentChannel.type !== 'text' || isHistoryLoading || !hasMoreHistory) return;
+    const list = messageListRef.current;
+    setIsHistoryLoading(true);
+    shouldAutoScrollRef.current = false;
+    try {
+      if (list) {
+        pendingScrollRestoreRef.current = {
+          scrollHeight: list.scrollHeight,
+          scrollTop: list.scrollTop,
+        };
+      }
+      const olderMessages = await fetchChannelMessages({
+        offset: messages.length,
+        limit: pageSize,
+        date: activeHistoryDate,
+      });
+      setMessages([...olderMessages, ...messages]);
+      setHasMoreHistory(olderMessages.length >= pageSize);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const applyHistoryDate = () => {
+    if (!historyDate) return;
+    void reloadLatestMessages(historyDate);
+  };
+
+  const clearHistoryDate = () => {
+    setHistoryDate('');
+    void reloadLatestMessages('');
+  };
+
+  const handleMessageWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY >= 0 || isHistoryLoading || !hasMoreHistory || activeHistoryDate) return;
+    const list = event.currentTarget;
+    if (list.scrollTop > 8) return;
+    event.preventDefault();
+    void loadOlderMessages();
+  };
+
   const uploadImage = async (file: File): Promise<string | null> => {
     try {
       const formData = new FormData();
@@ -173,6 +334,7 @@ const MessageArea: React.FC<MessageAreaProps> = ({
       const imageUrl = await uploadImage(file);
 
       if (imageUrl) {
+        shouldAutoScrollRef.current = true;
         onSendMessage(imageUrl);
         setPreviewImage(null);
         if (fileInputRef.current) {
@@ -190,6 +352,7 @@ const MessageArea: React.FC<MessageAreaProps> = ({
     e.preventDefault();
     if (!input.trim() || !currentChannel) return;
 
+    shouldAutoScrollRef.current = true;
     onSendMessage(input);
     setInput('');
   };
@@ -317,9 +480,121 @@ const MessageArea: React.FC<MessageAreaProps> = ({
             </div>
           </div>
         ) : (
-          <div className="flex flex-col h-full">
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="relative flex flex-col h-full">
+            {/* History popover */}
+            <div className="absolute right-3 top-3 z-20">
+              <button
+                type="button"
+                onClick={() => setIsHistoryPanelOpen((open) => !open)}
+                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs shadow-lg backdrop-blur transition-all ${
+                  isHistoryPanelOpen || activeHistoryDate
+                    ? 'border-indigo-500/50 bg-indigo-500/20 text-indigo-100'
+                    : 'border-zinc-700 bg-zinc-950/80 text-zinc-300 hover:bg-zinc-900'
+                }`}
+                title="历史记录"
+              >
+                <History className="h-4 w-4" />
+                历史记录
+              </button>
+
+              {isHistoryPanelOpen && (
+                <div className="mt-2 w-72 rounded-xl border border-zinc-700 bg-zinc-950/95 p-3 text-zinc-200 shadow-2xl">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <CalendarDays className="h-4 w-4 text-indigo-300" />
+                      历史记录
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsHistoryPanelOpen(false)}
+                      className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+                      aria-label="关闭历史记录"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={loadOlderMessages}
+                      disabled={isHistoryLoading || !hasMoreHistory || Boolean(activeHistoryDate)}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-all hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isHistoryLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                      {hasMoreHistory ? '加载更早消息' : '没有更多消息'}
+                    </button>
+
+                    <label className="block text-xs text-zinc-400">
+                      <span className="mb-1 block">每次加载</span>
+                      <select
+                        value={pageSize}
+                        onChange={(event) => setPageSize(Number(event.target.value))}
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none"
+                      >
+                        <option value={50}>50 条</option>
+                        <option value={100}>100 条</option>
+                        <option value={200}>200 条</option>
+                      </select>
+                    </label>
+
+                    <label className="block text-xs text-zinc-400">
+                      <span className="mb-1 block">按日期查看</span>
+                      <input
+                        type="date"
+                        value={historyDate}
+                        onChange={(event) => setHistoryDate(event.target.value)}
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none"
+                      />
+                    </label>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={applyHistoryDate}
+                        disabled={!historyDate || isHistoryLoading}
+                        className="flex-1 rounded-lg bg-indigo-500 px-3 py-2 text-sm text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        查看
+                      </button>
+                      {activeHistoryDate && (
+                        <button
+                          type="button"
+                          onClick={clearHistoryDate}
+                          className="flex-1 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+                        >
+                          返回最新
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {isHistoryLoading && (
+              <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full border border-zinc-700 bg-zinc-950/90 px-3 py-1 text-xs text-zinc-300 shadow-lg">
+                加载中...
+              </div>
+            )}
+
+            {!isHistoryLoading && !hasMoreHistory && messages.length > 0 && (
+              <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full border border-zinc-700 bg-zinc-950/80 px-3 py-1 text-xs text-zinc-500">
+                已到最早消息
+              </div>
+            )}
+
+            {activeHistoryDate && (
+              <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
+                正在查看 {activeHistoryDate} 的频道历史
+              </div>
+            )}
+
+            <div
+              ref={messageListRef}
+              onWheel={handleMessageWheel}
+              className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4"
+            >
               {isLoading ? (
                 <SkeletonMessageList count={6} />
               ) : messages.length > 0 ? (
@@ -329,7 +604,7 @@ const MessageArea: React.FC<MessageAreaProps> = ({
                     className="animate-fade-in"
                     style={{ animationDelay: `${index * 0.05}s` }}
                   >
-                    <MessageBubble message={message} />
+                    <MessageBubble message={message} onRecall={onRecallMessage} />
                   </div>
                 ))
               ) : (

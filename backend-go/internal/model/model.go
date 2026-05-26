@@ -149,24 +149,26 @@ type UserResponse struct {
 	Avatar    string     `json:"avatar"`
 	AvatarURL string     `json:"avatarUrl"`
 	Role      string     `json:"role"`
+	GroupRole string     `json:"groupRole,omitempty"`
 	Bio       string     `json:"bio"`
 	IsOnline  bool       `json:"isOnline"`
 	LastSeen  *time.Time `json:"lastSeen"`
 }
 
 type ChannelGroupResponse struct {
-	ID            uint              `json:"id"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	Icon          string            `json:"icon"`
-	OwnerID       uint              `json:"ownerId"`
-	InviteCode    string            `json:"inviteCode"`
-	InviteLink    string            `json:"inviteLink"` // format: CODE#OWNER_ID
-	TextChannels  []ChannelResponse `json:"textChannels"`
-	VoiceChannels []ChannelResponse `json:"voiceChannels"`
-	Members       []UserResponse    `json:"members"`
-	IsMember      bool              `json:"isMember"` // whether the requesting user is a member
-	MemberCount   int               `json:"memberCount"`
+	ID            uint                `json:"id"`
+	Name          string              `json:"name"`
+	Description   string              `json:"description"`
+	Icon          string              `json:"icon"`
+	OwnerID       uint                `json:"ownerId"`
+	InviteCode    string              `json:"inviteCode"`
+	InviteLink    string              `json:"inviteLink"` // format: CODE#OWNER_ID
+	TextChannels  []ChannelResponse   `json:"textChannels"`
+	VoiceChannels []ChannelResponse   `json:"voiceChannels"`
+	Members       []UserResponse      `json:"members"`
+	Roles         []GroupRoleResponse `json:"roles"`
+	IsMember      bool                `json:"isMember"` // whether the requesting user is a member
+	MemberCount   int                 `json:"memberCount"`
 }
 
 type ChannelResponse struct {
@@ -327,6 +329,7 @@ func ToChannelGroupResponse(group ChannelGroup) ChannelGroupResponse {
 		InviteLink:    fmt.Sprintf("%s#%d", group.InviteCode, group.OwnerID),
 		TextChannels:  textChannels,
 		VoiceChannels: voiceChannels,
+		Roles:         []GroupRoleResponse{},
 		IsMember:      false, // Default, should be set by caller if needed
 		MemberCount:   0,     // Default, should be set by caller if needed
 	}

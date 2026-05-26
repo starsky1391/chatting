@@ -17,12 +17,16 @@ import (
 
 const (
 	EventChannelMessageCreated = "channel.message.created"
+	EventChannelMessageDeleted = "channel.message.deleted"
 	EventDirectMessageCreated  = "dm.message.created"
+	EventDirectMessageDeleted  = "dm.message.deleted"
 )
 
 type Publisher interface {
 	PublishChannelMessageCreated(ctx context.Context, channelID uint, message model.MessageResponse) error
+	PublishChannelMessageDeleted(ctx context.Context, channelID, messageID uint) error
 	PublishDirectMessageCreated(ctx context.Context, conversationID uint, memberIDs []uint, message model.DirectMessageResponse) error
+	PublishDirectMessageDeleted(ctx context.Context, conversationID, messageID uint, memberIDs []uint) error
 	Close() error
 }
 
@@ -32,7 +36,15 @@ func (NoopPublisher) PublishChannelMessageCreated(context.Context, uint, model.M
 	return nil
 }
 
+func (NoopPublisher) PublishChannelMessageDeleted(context.Context, uint, uint) error {
+	return nil
+}
+
 func (NoopPublisher) PublishDirectMessageCreated(context.Context, uint, []uint, model.DirectMessageResponse) error {
+	return nil
+}
+
+func (NoopPublisher) PublishDirectMessageDeleted(context.Context, uint, uint, []uint) error {
 	return nil
 }
 
@@ -52,10 +64,21 @@ type ChannelMessageCreatedPayload struct {
 	Message   model.MessageResponse `json:"message"`
 }
 
+type ChannelMessageDeletedPayload struct {
+	ChannelID uint `json:"channelId"`
+	MessageID uint `json:"messageId"`
+}
+
 type DirectMessageCreatedPayload struct {
 	ConversationID uint                        `json:"conversationId"`
 	MemberIDs      []uint                      `json:"memberIds"`
 	Message        model.DirectMessageResponse `json:"message"`
+}
+
+type DirectMessageDeletedPayload struct {
+	ConversationID uint   `json:"conversationId"`
+	MessageID      uint   `json:"messageId"`
+	MemberIDs      []uint `json:"memberIds"`
 }
 
 type KafkaBus struct {
@@ -103,6 +126,14 @@ func (b *KafkaBus) PublishChannelMessageCreated(ctx context.Context, channelID u
 	return b.publish(ctx, EventChannelMessageCreated, fmt.Sprintf("channel-%d", channelID), payload)
 }
 
+func (b *KafkaBus) PublishChannelMessageDeleted(ctx context.Context, channelID, messageID uint) error {
+	payload := ChannelMessageDeletedPayload{
+		ChannelID: channelID,
+		MessageID: messageID,
+	}
+	return b.publish(ctx, EventChannelMessageDeleted, fmt.Sprintf("channel-%d", channelID), payload)
+}
+
 func (b *KafkaBus) PublishDirectMessageCreated(ctx context.Context, conversationID uint, memberIDs []uint, message model.DirectMessageResponse) error {
 	payload := DirectMessageCreatedPayload{
 		ConversationID: conversationID,
@@ -110,6 +141,15 @@ func (b *KafkaBus) PublishDirectMessageCreated(ctx context.Context, conversation
 		Message:        message,
 	}
 	return b.publish(ctx, EventDirectMessageCreated, fmt.Sprintf("dm-%d", conversationID), payload)
+}
+
+func (b *KafkaBus) PublishDirectMessageDeleted(ctx context.Context, conversationID, messageID uint, memberIDs []uint) error {
+	payload := DirectMessageDeletedPayload{
+		ConversationID: conversationID,
+		MessageID:      messageID,
+		MemberIDs:      memberIDs,
+	}
+	return b.publish(ctx, EventDirectMessageDeleted, fmt.Sprintf("dm-%d", conversationID), payload)
 }
 
 func (b *KafkaBus) publish(ctx context.Context, eventType, key string, payload interface{}) error {
@@ -172,12 +212,24 @@ func (b *KafkaBus) dispatch(hub *socket.Hub, value []byte) error {
 			return err
 		}
 		DispatchChannelMessageCreated(hub, payload.ChannelID, payload.Message)
+	case EventChannelMessageDeleted:
+		var payload ChannelMessageDeletedPayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return err
+		}
+		DispatchChannelMessageDeleted(hub, payload.ChannelID, payload.MessageID)
 	case EventDirectMessageCreated:
 		var payload DirectMessageCreatedPayload
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			return err
 		}
 		DispatchDirectMessageCreated(hub, payload.ConversationID, payload.MemberIDs, payload.Message)
+	case EventDirectMessageDeleted:
+		var payload DirectMessageDeletedPayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return err
+		}
+		DispatchDirectMessageDeleted(hub, payload.ConversationID, payload.MessageID, payload.MemberIDs)
 	default:
 		logger.Debug("Ignoring unknown Kafka event type: %s", event.Type)
 	}
@@ -188,8 +240,16 @@ func DispatchChannelMessageCreatedToGlobalHub(channelID uint, message model.Mess
 	DispatchChannelMessageCreated(socket.GetGlobalHub(), channelID, message)
 }
 
+func DispatchChannelMessageDeletedToGlobalHub(channelID, messageID uint) {
+	DispatchChannelMessageDeleted(socket.GetGlobalHub(), channelID, messageID)
+}
+
 func DispatchDirectMessageCreatedToGlobalHub(conversationID uint, memberIDs []uint, message model.DirectMessageResponse) {
 	DispatchDirectMessageCreated(socket.GetGlobalHub(), conversationID, memberIDs, message)
+}
+
+func DispatchDirectMessageDeletedToGlobalHub(conversationID, messageID uint, memberIDs []uint) {
+	DispatchDirectMessageDeleted(socket.GetGlobalHub(), conversationID, messageID, memberIDs)
 }
 
 func DispatchChannelMessageCreated(hub *socket.Hub, channelID uint, message model.MessageResponse) {
@@ -212,6 +272,22 @@ func DispatchChannelMessageCreated(hub *socket.Hub, channelID uint, message mode
 	}, "")
 }
 
+func DispatchChannelMessageDeleted(hub *socket.Hub, channelID, messageID uint) {
+	if hub == nil {
+		return
+	}
+
+	roomID := fmt.Sprintf("channel-%d", channelID)
+	hub.BroadcastToRoom(roomID, &socket.Message{
+		Type: "message:delete",
+		Room: roomID,
+		Payload: map[string]interface{}{
+			"channelId": channelID,
+			"messageId": messageID,
+		},
+	}, "")
+}
+
 func DispatchDirectMessageCreated(hub *socket.Hub, conversationID uint, memberIDs []uint, message model.DirectMessageResponse) {
 	if hub == nil {
 		return
@@ -223,6 +299,22 @@ func DispatchDirectMessageCreated(hub *socket.Hub, conversationID uint, memberID
 			Payload: map[string]interface{}{
 				"conversationId": conversationID,
 				"message":        message,
+			},
+		})
+	}
+}
+
+func DispatchDirectMessageDeleted(hub *socket.Hub, conversationID, messageID uint, memberIDs []uint) {
+	if hub == nil {
+		return
+	}
+
+	for _, userID := range memberIDs {
+		hub.SendToUser(userID, &socket.Message{
+			Type: "dm:message:delete",
+			Payload: map[string]interface{}{
+				"conversationId": conversationID,
+				"messageId":      messageID,
 			},
 		})
 	}

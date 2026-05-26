@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
 
 	"chat-backend/internal/service"
@@ -98,4 +99,35 @@ func (c *DirectMessageController) CreateMessage(ctx *gin.Context) {
 		return
 	}
 	response.Created(ctx, message)
+}
+
+func (c *DirectMessageController) RecallMessage(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+	conversationID, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid conversation ID")
+		return
+	}
+	messageID, err := strconv.ParseUint(ctx.Param("messageId"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid message ID")
+		return
+	}
+
+	err = c.directMessageService.RecallMessage(userID, uint(conversationID), uint(messageID))
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrMessageNotOwned):
+			response.Error(ctx, 403, "只能撤回自己发送的消息")
+		case errors.Is(err, service.ErrMessageRecallWindow):
+			response.Error(ctx, 400, "消息已超过 30 秒，不能撤回")
+		case errors.Is(err, service.ErrDirectMessageConversationScope):
+			response.Error(ctx, 400, "消息不属于当前私信会话")
+		default:
+			response.NotFound(ctx, "私信消息不存在")
+		}
+		return
+	}
+
+	response.SuccessWithMessage(ctx, nil, "消息已撤回")
 }

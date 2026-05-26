@@ -7,7 +7,8 @@ import { config } from '@/lib/config';
 import { onWebSocketMessage } from '@/lib/socket';
 import ContextMenu from '../ui/ContextMenu';
 import ConfirmModal from '../ui/ConfirmModal';
-import { Hash, ImageIcon, Pencil, Plus, Settings, Trash2, Upload, Users, Volume2, X } from 'lucide-react';
+import GroupSettingsModal from '../group/GroupSettingsModal';
+import { Hash, Pencil, Plus, Settings, Trash2, Users, Volume2 } from 'lucide-react';
 
 interface ChannelGroup {
   id: number;
@@ -20,6 +21,18 @@ interface ChannelGroup {
   textChannels: Channel[];
   voiceChannels: Channel[];
   members: Member[];
+  roles?: GroupRole[];
+}
+
+interface GroupRole {
+  id: number;
+  groupId: number;
+  name: string;
+  description: string;
+  color: string;
+  position: number;
+  isDefault: boolean;
+  isSystem: boolean;
 }
 
 interface Channel {
@@ -38,6 +51,8 @@ interface Member {
   username: string;
   avatar: string;
   isOnline: boolean;
+  role?: string;
+  groupRole?: string;
 }
 
 interface ChannelListProps {
@@ -60,11 +75,6 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
   const [editChannelName, setEditChannelName] = useState('');
   const [editChannelMaxMembers, setEditChannelMaxMembers] = useState(100);
   const [isGroupSettingsOpen, setIsGroupSettingsOpen] = useState(false);
-  const [groupName, setGroupName] = useState('');
-  const [groupDescription, setGroupDescription] = useState('');
-  const [groupIcon, setGroupIcon] = useState('');
-  const [isUploadingGroupIcon, setIsUploadingGroupIcon] = useState(false);
-  const [groupError, setGroupError] = useState('');
   const [channelError, setChannelError] = useState('');
   const [voiceParticipantCounts, setVoiceParticipantCounts] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
@@ -179,84 +189,9 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
     });
   };
 
-  const getGroupIconUrl = (icon?: string) => {
-    if (!icon) return '';
-    if (icon.startsWith('http')) return icon;
-    if (icon.startsWith('/uploads/')) return `${config.api.baseUrl}${icon}`;
-    return '';
-  };
-
   const openGroupSettings = () => {
     if (!currentGroup) return;
-    setGroupError('');
-    setGroupName(currentGroup.name);
-    setGroupDescription(currentGroup.description || '');
-    setGroupIcon(currentGroup.icon || '');
     setIsGroupSettingsOpen(true);
-  };
-
-  const handleUploadGroupIcon = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setGroupError('');
-    setIsUploadingGroupIcon(true);
-    try {
-      const formData = new FormData();
-      formData.append('image', file);
-
-      const response = await fetch(`${config.api.baseUrl}/api/upload`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formData
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setGroupError(data.error || data.message || '上传图片失败');
-        return;
-      }
-      setGroupIcon(data.data?.url || '');
-    } catch (error) {
-      console.error('Failed to upload group icon:', error);
-      setGroupError('上传图片失败');
-    } finally {
-      setIsUploadingGroupIcon(false);
-      event.target.value = '';
-    }
-  };
-
-  const handleUpdateGroup = async () => {
-    if (!currentGroup || !groupName.trim()) return;
-    setGroupError('');
-
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups/${currentGroup.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name: groupName.trim(),
-          description: groupDescription.trim(),
-          icon: groupIcon
-        })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setGroupError(data.error || data.message || '更新群组失败');
-        return;
-      }
-      setCurrentGroup(data.data as ChannelGroup);
-      setIsGroupSettingsOpen(false);
-      window.dispatchEvent(new Event('groups:refresh'));
-      await fetchGroups();
-    } catch (error) {
-      console.error('Failed to update group:', error);
-      setGroupError('更新群组失败');
-    }
   };
 
   const openCreateChannel = () => {
@@ -405,6 +340,12 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
     );
   }
 
+  const currentMembership = currentGroup.members?.find((member) => member.id === currentUser?.id);
+  const canManageGroup =
+    currentGroup.ownerId === currentUser?.id ||
+    currentMembership?.groupRole === 'admin' ||
+    currentMembership?.role === 'admin';
+
   return (
     <div className="flex flex-col h-full">
       {/* Server Header */}
@@ -416,13 +357,15 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
               <p className="text-xs text-zinc-500 mt-1 truncate">{currentGroup.description}</p>
             )}
           </div>
-          <button
-            onClick={openGroupSettings}
-            className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-700/50 hover:text-white"
-            title="群组设置"
-          >
-            <Settings className="h-4 w-4" />
-          </button>
+          {canManageGroup && (
+            <button
+              onClick={openGroupSettings}
+              className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-700/50 hover:text-white"
+              title="群组设置"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+          )}
         </div>
         {/* Invite Code - Direct display with copy */}
         {(currentGroup.inviteCode || currentGroup.inviteLink) && (
@@ -615,114 +558,16 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
         />
       )}
 
-      {/* Group Settings Modal */}
-      {isGroupSettingsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="max-h-[88vh] w-full max-w-[720px] overflow-hidden rounded-xl border border-zinc-800 bg-[#111113] text-zinc-100 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
-              <div className="min-w-0">
-                <h3 className="text-lg font-semibold text-white">群组设置</h3>
-                <p className="mt-1 text-sm text-zinc-500">修改群名称、图片和介绍</p>
-              </div>
-              <button
-                onClick={() => { setIsGroupSettingsOpen(false); setGroupError(''); }}
-                className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
-                title="关闭"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="grid max-h-[calc(88vh-72px)] overflow-y-auto md:grid-cols-[180px_1fr]">
-              <aside className="border-b border-zinc-800 bg-[#151517] p-4 md:border-b-0 md:border-r">
-                <button className="flex w-full items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2 text-left text-sm text-white">
-                  <Settings className="h-4 w-4" />
-                  基本信息
-                </button>
-              </aside>
-
-              <section className="space-y-8 p-6">
-                {groupError && (
-                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-                    {groupError}
-                  </div>
-                )}
-
-                <div className="grid gap-4 sm:grid-cols-[156px_1fr] sm:items-center">
-                  <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-2xl bg-zinc-800 text-4xl font-bold text-zinc-300">
-                    {getGroupIconUrl(groupIcon) ? (
-                      <img src={getGroupIconUrl(groupIcon)} alt={groupName || 'Group icon'} className="h-full w-full object-cover" />
-                    ) : groupIcon ? (
-                      <span>{groupIcon}</span>
-                    ) : (
-                      <ImageIcon className="h-10 w-10 text-zinc-500" />
-                    )}
-                  </div>
-                  <div>
-                    <h4 className="text-base font-semibold text-white">群头像</h4>
-                    <p className="mt-1 text-sm text-zinc-500">可上传小于 10 MB 的 PNG、JPG、WEBP 或 GIF。</p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800">
-                        <Upload className="h-4 w-4" />
-                        {isUploadingGroupIcon ? '上传中...' : '上传图片'}
-                        <input type="file" accept="image/*" onChange={handleUploadGroupIcon} className="hidden" disabled={isUploadingGroupIcon} />
-                      </label>
-                      <button
-                        onClick={() => setGroupIcon('')}
-                        className="rounded-lg px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-800"
-                      >
-                        移除图片
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <label className="block">
-                  <div className="mb-2 flex items-center justify-between gap-4">
-                    <span className="text-base font-semibold text-white">群名称</span>
-                    <span className="text-xs text-zinc-500">{groupName.length}/50</span>
-                  </div>
-                  <input
-                    value={groupName}
-                    onChange={(event) => setGroupName(event.target.value.slice(0, 50))}
-                    className="w-full border-b border-zinc-700 bg-transparent px-0 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-indigo-500"
-                    placeholder="输入群名称"
-                  />
-                </label>
-
-                <label className="block">
-                  <div className="mb-2 flex items-center justify-between gap-4">
-                    <span className="text-base font-semibold text-white">群介绍</span>
-                    <span className="text-xs text-zinc-500">{groupDescription.length}/200</span>
-                  </div>
-                  <textarea
-                    value={groupDescription}
-                    onChange={(event) => setGroupDescription(event.target.value.slice(0, 200))}
-                    className="min-h-28 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-900/60 px-3 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-indigo-500"
-                    placeholder="暂无介绍"
-                  />
-                </label>
-
-                <div className="flex justify-end gap-2 border-t border-zinc-800 pt-5">
-                  <button
-                    onClick={() => { setIsGroupSettingsOpen(false); setGroupError(''); }}
-                    className="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:bg-zinc-800"
-                  >
-                    取消
-                  </button>
-                  <button
-                    onClick={handleUpdateGroup}
-                    disabled={!groupName.trim() || isUploadingGroupIcon}
-                    className="rounded-lg bg-indigo-500 px-4 py-2 text-sm text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    保存修改
-                  </button>
-                </div>
-              </section>
-            </div>
-          </div>
-        </div>
-      )}
+      <GroupSettingsModal
+        isOpen={isGroupSettingsOpen && canManageGroup}
+        group={currentGroup}
+        currentUserId={currentUser?.id}
+        onClose={() => setIsGroupSettingsOpen(false)}
+        onSaved={() => {
+          void fetchGroups();
+          window.dispatchEvent(new Event('groups:refresh'));
+        }}
+      />
 
       {/* Create Channel Modal */}
       {isCreateChannelOpen && (
