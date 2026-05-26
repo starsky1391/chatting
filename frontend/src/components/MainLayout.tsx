@@ -1,6 +1,5 @@
 "use client";
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { cn } from '@/lib/utils';
 import { useChatStore } from '@/store/useChatStore';
 import MessageArea from './messages/MessageArea';
 import ChannelList from './sidebar/ChannelList';
@@ -15,18 +14,18 @@ import {
   onWebSocketMessage,
   cleanupWebSocket,
   isConnected,
-  sendChatMessage,
-  sendWebSocketMessage
+  sendWebSocketMessage,
+  onConnect,
+  onDisconnect
 } from '@/lib/socket';
 
 const MainLayout: React.FC = () => {
   const currentUser = useChatStore((state) => state.currentUser);
   const currentChannel = useChatStore((state) => state.currentChannel);
   const currentGroupId = useChatStore((state) => state.currentGroupId);
-  const channels = useChatStore((state) => state.channels);
   const members = useChatStore((state) => state.members);
+  const isMemberSidebarOpen = useChatStore((state) => state.isMemberSidebarOpen);
   const setCurrentChannel = useChatStore((state) => state.setCurrentChannel);
-  const setCurrentGroupId = useChatStore((state) => state.setCurrentGroupId);
   const setMessages = useChatStore((state) => state.setMessages);
   const addMessage = useChatStore((state) => state.addMessage);
   const setGroupMembers = useChatStore((state) => state.setGroupMembers);
@@ -38,6 +37,65 @@ const MainLayout: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  type SocketUserPayload = {
+    userId?: number;
+    id?: number;
+    username?: string;
+    avatar?: string;
+    avatarUrl?: string;
+    isOnline?: boolean;
+  };
+
+  type ChannelMembersPayload = {
+    members?: SocketUserPayload[];
+  };
+
+  type ChannelEventPayload = SocketUserPayload & {
+    channelId?: number;
+  };
+
+  type MessagePayload = {
+    channelId?: number;
+    id?: number;
+    content?: string | { type: string; body: string };
+    sender?: {
+      id?: number;
+      username?: string;
+      avatar?: string;
+      avatarUrl?: string;
+    };
+    createdAt?: string | Date;
+    message?: {
+      id: number;
+      content: { type: string; body: string };
+      sender: {
+        id?: number;
+        username?: string;
+        avatar?: string;
+        avatarUrl?: string;
+      };
+      createdAt: string | Date;
+    };
+  };
+
+  type ApiMessage = {
+    id: number;
+    content: { type: string; body: string };
+    sender?: {
+      id?: number;
+      username?: string;
+      avatar?: string;
+      avatarUrl?: string;
+    };
+    createdAt: string | Date;
+  };
+
+  type ApiEnvelope<T> = {
+    data?: T;
+    error?: string;
+    message?: string;
+  };
 
   // Fetch current user info on mount
   const fetchCurrentUser = useCallback(async () => {
@@ -121,21 +179,29 @@ const MainLayout: React.FC = () => {
     const token = localStorage.getItem('token');
     if (!token) return;
 
+    const unsubscribeConnect = onConnect(() => setWsConnected(true));
+    const unsubscribeDisconnect = onDisconnect(() => setWsConnected(false));
+
     connectWebSocket()
       .then(() => setWsConnected(true))
       .catch((err) => console.error('WebSocket connection failed:', err));
 
-    return () => cleanupWebSocket();
+    return () => {
+      unsubscribeConnect();
+      unsubscribeDisconnect();
+      cleanupWebSocket();
+    };
   }, []);
 
   // WebSocket event handlers
   useEffect(() => {
     if (!wsConnected) return;
 
-    const unsubMembers = onWebSocketMessage('channel:members', (data) => {
+    const unsubMembers = onWebSocketMessage('channel:members', (rawData) => {
+      const data = rawData as ChannelMembersPayload;
       if (data.members && Array.isArray(data.members)) {
-        const formattedMembers = data.members.map((m: any) => ({
-          id: m.userId || m.id,
+        const formattedMembers = data.members.map((m) => ({
+          id: m.userId ?? m.id ?? 0,
           username: m.username || 'Unknown',
           avatar: m.avatar || '',
           avatarUrl: m.avatarUrl || '',
@@ -147,11 +213,13 @@ const MainLayout: React.FC = () => {
       }
     });
 
-    const unsubJoined = onWebSocketMessage('user:joined', (data) => {
+    const unsubJoined = onWebSocketMessage('user:joined', (rawData) => {
+      const data = rawData as ChannelEventPayload;
       if (data.channelId === currentChannel?.id) {
+        if (!data.userId) return;
         const newMember = {
           id: data.userId,
-          username: data.username,
+          username: data.username || 'Unknown',
           avatar: '',
           avatarUrl: data.avatarUrl || '',
           isOnline: true,
@@ -165,7 +233,8 @@ const MainLayout: React.FC = () => {
       }
     });
 
-    const unsubLeft = onWebSocketMessage('user:left', (data) => {
+    const unsubLeft = onWebSocketMessage('user:left', (rawData) => {
+      const data = rawData as ChannelEventPayload;
       if (data.channelId === currentChannel?.id) {
         useChatStore.setState((state) => ({
           members: state.members.filter((m) => m.id !== data.userId)
@@ -173,21 +242,35 @@ const MainLayout: React.FC = () => {
       }
     });
 
-    const unsubMessage = onWebSocketMessage('message:create', (data) => {
+    const unsubMessage = onWebSocketMessage('message:create', (rawData) => {
+      const data = rawData as MessagePayload;
       if (data.channelId === currentChannel?.id) {
-        const newMessage = {
-          id: Date.now(),
-          content: { type: 'text', body: data.content },
+        const message = data.message || {
+          id: data.id || Date.now(),
+          content: typeof data.content === 'string' ? { type: 'text', body: data.content } : data.content || { type: 'text', body: '' },
           sender: data.sender || { id: 0, username: 'Unknown' },
-          createdAt: new Date(),
-          isOwn: data.sender?.id === currentUser?.id
+          createdAt: data.createdAt || new Date(),
+        };
+        const newMessage = {
+          ...message,
+          sender: {
+            id: message.sender?.id || 0,
+            username: message.sender?.username || 'Unknown',
+            avatar: message.sender?.avatar || '',
+            avatarUrl: message.sender?.avatarUrl || '',
+            email: '',
+            isOnline: true,
+            role: 'member' as const,
+          },
+          isOwn: message.sender?.id === currentUser?.id
         };
         addMessage(newMessage);
       }
     });
 
-    const unsubOnline = onWebSocketMessage('user:online', (data) => {
-      if (data.userId) updateMemberOnlineStatus(data.userId, data.isOnline);
+    const unsubOnline = onWebSocketMessage('user:online', (rawData) => {
+      const data = rawData as ChannelEventPayload;
+      if (data.userId) updateMemberOnlineStatus(data.userId, data.isOnline ?? false);
     });
 
     return () => {
@@ -200,14 +283,14 @@ const MainLayout: React.FC = () => {
   }, [wsConnected, currentChannel, currentUser, setMembers, addMessage, updateMemberOnlineStatus]);
 
   // Track previous channel
-  const [prevChannelId, setPrevChannelId] = useState<number | null>(null);
+  const prevChannelIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!wsConnected) return;
-    if (prevChannelId !== null) leaveChannel(prevChannelId);
+    if (prevChannelIdRef.current !== null) leaveChannel(prevChannelIdRef.current);
     if (currentChannel?.id) {
       joinChannel(currentChannel.id);
-      setPrevChannelId(currentChannel.id);
+      prevChannelIdRef.current = currentChannel.id;
     }
     return () => {
       if (currentChannel?.id) leaveChannel(currentChannel.id);
@@ -229,7 +312,7 @@ const MainLayout: React.FC = () => {
         if (response.ok) {
           const data = await response.json();
           const messagesArray = Array.isArray(data.data) ? data.data : [];
-          const messagesWithOwnership = messagesArray.map((message: any) => ({
+          const messagesWithOwnership = messagesArray.map((message: ApiMessage) => ({
             ...message,
             isOwn: message.sender?.id === (currentUser?.id || 0)
           }));
@@ -258,9 +341,9 @@ const MainLayout: React.FC = () => {
 
         if (response.ok) {
           const data = await response.json();
-          const membersData = Array.isArray(data.data) ? data.data : [];
-          const formattedMembers = membersData.map((m: any) => ({
-            id: m.userId || m.id,
+          const membersData = Array.isArray(data.data) ? data.data as SocketUserPayload[] : [];
+          const formattedMembers = membersData.map((m) => ({
+            id: m.userId ?? m.id ?? 0,
             username: m.username || 'Unknown',
             avatar: m.avatar || '',
             avatarUrl: m.avatarUrl || '',
@@ -344,8 +427,22 @@ const MainLayout: React.FC = () => {
         body: JSON.stringify({ content })
       });
 
-      if (response.ok && wsConnected && isConnected()) {
-        sendChatMessage(channelId, content);
+      if (!response.ok) throw new Error(`Failed to send message: ${response.status}`);
+      const payload = (await response.json()) as ApiEnvelope<ApiMessage>;
+      if (payload.data) {
+        addMessage({
+          ...payload.data,
+          sender: {
+            id: payload.data.sender?.id || currentUser?.id || 0,
+            username: payload.data.sender?.username || currentUser?.username || 'Unknown',
+            avatar: payload.data.sender?.avatar || currentUser?.avatar || '',
+            avatarUrl: payload.data.sender?.avatarUrl || currentUser?.avatarUrl || '',
+            email: currentUser?.email || '',
+            isOnline: true,
+            role: (currentUser?.role || 'member') as 'admin' | 'moderator' | 'member',
+          },
+          isOwn: true,
+        });
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -411,7 +508,11 @@ const MainLayout: React.FC = () => {
 
           {/* Layer 4: Context Sidebar - Members (240px) */}
           {currentGroupId && (
-            <aside className="w-[240px] rounded-xl bg-[#1a1a2e]/80 overflow-hidden">
+            <aside
+              className={`rounded-xl bg-[#1a1a2e]/80 overflow-hidden transition-all duration-200 ${
+                isMemberSidebarOpen ? 'w-[240px]' : 'w-[56px]'
+              }`}
+            >
               <MemberList />
             </aside>
           )}

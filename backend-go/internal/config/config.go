@@ -3,18 +3,27 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/viper"
 )
 
 type Config struct {
-	Port        string
-	Database    DatabaseConfig
-	JWT         JWTConfig
-	Redis       RedisConfig
-	RabbitMQ    RabbitMQConfig
-	LogLevel    string
+	Port           string
+	Database       DatabaseConfig
+	JWT            JWTConfig
+	Redis          RedisConfig
+	RabbitMQ       RabbitMQConfig
+	Kafka          KafkaConfig
+	Admin          AdminConfig
+	LogLevel       string
 	AllowedOrigins []string
+	Wechat         WechatConfig
+}
+
+type WechatConfig struct {
+	AppID     string
+	AppSecret string
 }
 
 type DatabaseConfig struct {
@@ -27,8 +36,8 @@ type DatabaseConfig struct {
 }
 
 type JWTConfig struct {
-	Secret     string
-	ExpiresIn  int
+	Secret    string
+	ExpiresIn int
 }
 
 type RedisConfig struct {
@@ -45,6 +54,19 @@ type RabbitMQConfig struct {
 	Password string
 }
 
+type KafkaConfig struct {
+	Enabled       bool
+	Brokers       []string
+	TopicEvents   string
+	ConsumerGroup string
+}
+
+type AdminConfig struct {
+	Email    string
+	Username string
+	Password string
+}
+
 func Load() (*Config, error) {
 	viper.SetConfigFile(".env")
 	viper.AutomaticEnv()
@@ -52,13 +74,14 @@ func Load() (*Config, error) {
 	// Set defaults
 	viper.SetDefault("PORT", "3001")
 	viper.SetDefault("LOG_LEVEL", "info")
+	viper.SetDefault("KAFKA_TOPIC_EVENTS", "chat.events")
 
 	// Try to read config file, ignore error if not found
 	_ = viper.ReadInConfig()
 
 	cfg := &Config{
-		Port:        viper.GetString("PORT"),
-		LogLevel:    viper.GetString("LOG_LEVEL"),
+		Port:           viper.GetString("PORT"),
+		LogLevel:       viper.GetString("LOG_LEVEL"),
 		AllowedOrigins: []string{"localhost", ".vercel.app", ".railway.app"},
 	}
 
@@ -96,7 +119,54 @@ func Load() (*Config, error) {
 	cfg.RabbitMQ.User = viper.GetString("RABBITMQ_USER")
 	cfg.RabbitMQ.Password = viper.GetString("RABBITMQ_PASSWORD")
 
+	// Kafka config. Leave KAFKA_BROKERS empty to disable event publishing locally.
+	kafkaBrokers := splitCSV(viper.GetString("KAFKA_BROKERS"))
+	cfg.Kafka.Brokers = kafkaBrokers
+	cfg.Kafka.TopicEvents = viper.GetString("KAFKA_TOPIC_EVENTS")
+	cfg.Kafka.ConsumerGroup = viper.GetString("KAFKA_CONSUMER_GROUP")
+	if cfg.Kafka.ConsumerGroup == "" {
+		hostname, _ := os.Hostname()
+		if hostname == "" {
+			hostname = "local"
+		}
+		cfg.Kafka.ConsumerGroup = "chat-backend-ws-" + hostname
+	}
+	cfg.Kafka.Enabled = len(kafkaBrokers) > 0
+
+	// Admin bootstrap account
+	cfg.Admin.Email = viper.GetString("ADMIN_EMAIL")
+	if cfg.Admin.Email == "" {
+		cfg.Admin.Email = "admin@example.com"
+	}
+	cfg.Admin.Username = viper.GetString("ADMIN_USERNAME")
+	if cfg.Admin.Username == "" {
+		cfg.Admin.Username = "admin"
+	}
+	cfg.Admin.Password = viper.GetString("ADMIN_PASSWORD")
+	if cfg.Admin.Password == "" {
+		cfg.Admin.Password = "admin123456"
+	}
+
+	// Wechat config
+	cfg.Wechat.AppID = viper.GetString("WECHAT_APP_ID")
+	cfg.Wechat.AppSecret = viper.GetString("WECHAT_APP_SECRET")
+
 	return cfg, nil
+}
+
+func splitCSV(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func getEnvAsInt(key string, defaultVal int) int {

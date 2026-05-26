@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"chat-backend/internal/model"
-	"chat-backend/internal/repository"
 	"chat-backend/internal/redis"
+	"chat-backend/internal/repository"
 	"chat-backend/pkg/utils"
 
 	"gorm.io/gorm"
@@ -41,13 +41,26 @@ type CreateGroupInput struct {
 	Icon        string `json:"icon"`
 }
 
+type UpdateGroupInput struct {
+	Name        string `json:"name" binding:"required,min=1,max=50"`
+	Description string `json:"description"`
+	Icon        string `json:"icon"`
+}
+
 type CreateChannelInput struct {
 	Name        string `json:"name" binding:"required,min=1,max=50"`
 	Type        string `json:"type" binding:"omitempty,oneof=text voice"`
 	Description string `json:"description"`
-	GroupID     uint   `json:"groupId" binding:"required"`
+	GroupID     uint   `json:"groupId"`
 	Position    int    `json:"position"`
 	CreatedBy   uint   `json:"-"` // Set by controller, not from request
+	MaxMembers  int    `json:"maxMembers" binding:"omitempty,min=0,max=100"`
+}
+
+type UpdateChannelInput struct {
+	Name        string `json:"name" binding:"required,min=1,max=50"`
+	Description string `json:"description"`
+	MaxMembers  int    `json:"maxMembers" binding:"omitempty,min=0,max=100"`
 }
 
 func (s *ChannelGroupService) GetAllGroups() ([]model.ChannelGroupResponse, error) {
@@ -152,8 +165,35 @@ func (s *ChannelGroupService) CreateGroup(input CreateGroupInput, ownerID uint) 
 		GroupID:     group.ID,
 		Position:    0,
 		CreatedBy:   0, // System created
+		MaxMembers:  100,
 	}
 	s.channelRepo.Create(voiceChannel)
+
+	return s.GetGroupByID(group.ID)
+}
+
+func (s *ChannelGroupService) UpdateGroup(groupID, userID uint, input UpdateGroupInput) (*model.ChannelGroupResponse, error) {
+	group, err := s.groupRepo.FindByID(groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !s.canManageGroup(userID, group.ID) {
+		return nil, ErrNoPermission
+	}
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return nil, errors.New("group name is required")
+	}
+
+	group.Name = name
+	group.Description = strings.TrimSpace(input.Description)
+	group.Icon = strings.TrimSpace(input.Icon)
+
+	if err := s.groupRepo.Update(group); err != nil {
+		return nil, err
+	}
 
 	return s.GetGroupByID(group.ID)
 }
@@ -323,6 +363,14 @@ func (s *ChannelGroupService) GetActiveChannelMembers(channelID uint) ([]map[str
 }
 
 func (s *ChannelGroupService) CreateChannel(input CreateChannelInput) (*model.ChannelResponse, error) {
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" {
+		return nil, errors.New("channel name is required")
+	}
+	if s.channelRepo.NameExists(input.GroupID, input.Name, 0) {
+		return nil, ErrChannelNameExists
+	}
+
 	channel := &model.Channel{
 		Name:        input.Name,
 		Type:        input.Type,
@@ -330,6 +378,7 @@ func (s *ChannelGroupService) CreateChannel(input CreateChannelInput) (*model.Ch
 		GroupID:     input.GroupID,
 		Position:    input.Position,
 		CreatedBy:   input.CreatedBy,
+		MaxMembers:  input.MaxMembers,
 	}
 
 	if channel.Type == "" {
@@ -343,6 +392,42 @@ func (s *ChannelGroupService) CreateChannel(input CreateChannelInput) (*model.Ch
 	// Publish update to Redis for real-time sync
 	if s.redis != nil {
 		s.redis.PublishChannelUpdate(input.GroupID, *channel)
+	}
+
+	response := model.ToChannelResponse(*channel)
+	return &response, nil
+}
+
+func (s *ChannelGroupService) UpdateChannel(channelID, userID uint, input UpdateChannelInput) (*model.ChannelResponse, error) {
+	channel, err := s.channelRepo.FindByID(channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !s.canManageChannel(userID, channel) {
+		return nil, ErrNoPermission
+	}
+
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" {
+		return nil, errors.New("channel name is required")
+	}
+	if s.channelRepo.NameExists(channel.GroupID, input.Name, channelID) {
+		return nil, ErrChannelNameExists
+	}
+
+	channel.Name = input.Name
+	channel.Description = input.Description
+	if channel.Type == "voice" {
+		channel.MaxMembers = input.MaxMembers
+	}
+
+	if err := s.channelRepo.Update(channel); err != nil {
+		return nil, err
+	}
+
+	if s.redis != nil {
+		s.redis.PublishChannelUpdate(channel.GroupID, *channel)
 	}
 
 	response := model.ToChannelResponse(*channel)
@@ -395,25 +480,31 @@ func (s *ChannelGroupService) DeleteChannel(channelID, userID uint) error {
 		return err
 	}
 
-	// Check permission: user must be group owner/admin/moderator OR channel creator
-	userRole := s.userGroupRepo.GetUserRole(userID, channel.GroupID)
-
-	// Allow if user is owner, admin, or moderator
-	if userRole == "owner" || userRole == "admin" || userRole == "moderator" {
+	if s.canManageChannel(userID, channel) {
 		return s.channelRepo.Delete(channelID)
 	}
 
-	// Allow if user is the channel creator
-	if channel.CreatedBy == userID {
-		return s.channelRepo.Delete(channelID)
-	}
-
-	// No permission
 	return ErrNoPermission
 }
 
 // ErrNoPermission is returned when user lacks permission
 var ErrNoPermission = errors.New("permission denied")
+var ErrChannelNameExists = errors.New("channel name already exists")
+var ErrVoiceChannelFull = errors.New("voice channel is full")
+var ErrNotVoiceChannel = errors.New("not a voice channel")
+
+func (s *ChannelGroupService) canManageChannel(userID uint, channel *model.Channel) bool {
+	userRole := s.userGroupRepo.GetUserRole(userID, channel.GroupID)
+	if userRole == "owner" || userRole == "admin" || userRole == "moderator" {
+		return true
+	}
+	return channel.CreatedBy == userID
+}
+
+func (s *ChannelGroupService) canManageGroup(userID uint, groupID uint) bool {
+	userRole := s.userGroupRepo.GetUserRole(userID, groupID)
+	return userRole == "owner" || userRole == "admin" || userRole == "moderator"
+}
 
 func (s *ChannelGroupService) DeleteGroup(groupID uint) error {
 	return s.groupRepo.DB().Transaction(func(tx *gorm.DB) error {
@@ -453,4 +544,32 @@ func (s *ChannelGroupService) GetVoiceChannelParticipants(channelID uint) ([]map
 		return s.redis.GetVoiceChannelParticipants(channelID)
 	}
 	return []map[string]interface{}{}, nil
+}
+
+func (s *ChannelGroupService) ValidateVoiceChannelJoin(channelID uint, userID uint) error {
+	channel, err := s.channelRepo.FindByID(channelID)
+	if err != nil {
+		return err
+	}
+	if channel.Type != "voice" {
+		return ErrNotVoiceChannel
+	}
+	if !s.userGroupRepo.Exists(userID, channel.GroupID) {
+		return ErrNoPermission
+	}
+	if channel.MaxMembers <= 0 || s.redis == nil {
+		return nil
+	}
+
+	participants, err := s.redis.GetVoiceChannelParticipants(channelID)
+	if err != nil {
+		return err
+	}
+	if s.redis.IsVoiceChannelParticipant(channelID, userID) {
+		return nil
+	}
+	if len(participants) >= channel.MaxMembers {
+		return ErrVoiceChannelFull
+	}
+	return nil
 }

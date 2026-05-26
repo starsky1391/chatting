@@ -1,14 +1,6 @@
 import { config } from './config';
 
-interface ApiResponse<T> {
-  success: boolean;
-  data: T;
-  message?: string;
-  error?: {
-    code: number;
-    message: string;
-  };
-}
+type RequestBody = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
 class ApiClient {
   private baseUrl: string;
@@ -41,7 +33,7 @@ class ApiClient {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.msg || 'Request failed');
+        throw new Error(data.msg || data.error || 'Request failed');
       }
 
       return data.data as T;
@@ -51,7 +43,7 @@ class ApiClient {
     }
   }
 
-  async post<T>(endpoint: string, body: any): Promise<T> {
+  async post<T>(endpoint: string, body: RequestBody): Promise<T> {
     try {
       console.log("正在请求地址:", `${this.baseUrl}${endpoint}`);
       const response = await fetch(`${this.baseUrl}${endpoint}`, {
@@ -64,7 +56,7 @@ class ApiClient {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.msg || 'Request failed');
+        throw new Error(data.msg || data.error || 'Request failed');
       }
 
       return data.data as T;
@@ -74,7 +66,7 @@ class ApiClient {
     }
   }
 
-  async put<T>(endpoint: string, body: any): Promise<T> {
+  async put<T>(endpoint: string, body: RequestBody): Promise<T> {
     try {
       const response = await fetch(`${this.baseUrl}${endpoint}`, {
         method: 'PUT',
@@ -86,7 +78,7 @@ class ApiClient {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.msg || 'Request failed');
+        throw new Error(data.msg || data.error || 'Request failed');
       }
 
       return data.data as T;
@@ -107,7 +99,7 @@ class ApiClient {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.msg || 'Request failed');
+        throw new Error(data.msg || data.error || 'Request failed');
       }
 
       return data.data as T;

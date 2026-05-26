@@ -37,8 +37,14 @@ func main() {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
+	// Ensure an admin account exists for the management console
+	err = model.SeedAdminUser(db, cfg.Admin)
+	if err != nil {
+		log.Fatalf("Failed to seed admin user: %v", err)
+	}
+
 	// Create default channels
-	err = model.CreateDefaultChannels(db)
+	err = model.CreateDefaultChannels(db, cfg.Admin.Email)
 	if err != nil {
 		logger.Warn("Failed to create default channels: %v", err)
 	}

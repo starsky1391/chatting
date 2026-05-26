@@ -17,6 +17,7 @@ interface Channel {
   name: string;
   type: 'text' | 'voice';
   groupId?: number;
+  maxMembers?: number;
   isInCall?: boolean;
   callMembers?: number;
 }
@@ -40,6 +41,14 @@ interface Member {
   isOnline: boolean;
   role: 'admin' | 'moderator' | 'member';
   isInCall?: boolean;
+}
+
+interface VoiceParticipant {
+  identity: string;
+  name: string;
+  avatarUrl?: string;
+  isSpeaking: boolean;
+  isMuted: boolean;
 }
 
 interface ChatState {
@@ -81,12 +90,28 @@ interface ChatState {
   isJoiningCall: boolean;
   localStream: MediaStream | null;
   remoteStreams: Map<number, MediaStream>;
+  activeVoiceChannel: Channel | null;
+  voiceParticipants: VoiceParticipant[];
+  voiceIsMuted: boolean;
+  voiceIsDeafened: boolean;
+  voiceInputVolume: number;
+  voiceOutputVolume: number;
+  voiceError: string | null;
+  voiceJoinRequest: { channel: Channel; nonce: number } | null;
   joinCall: () => void;
   leaveCall: () => void;
   toggleMute: () => void;
   setLocalStream: (stream: MediaStream | null) => void;
   addRemoteStream: (userId: number, stream: MediaStream) => void;
   removeRemoteStream: (userId: number) => void;
+  setActiveVoiceChannel: (channel: Channel | null) => void;
+  setVoiceParticipants: (participants: VoiceParticipant[]) => void;
+  setVoiceMuted: (isMuted: boolean) => void;
+  setVoiceDeafened: (isDeafened: boolean) => void;
+  setVoiceInputVolume: (volume: number) => void;
+  setVoiceOutputVolume: (volume: number) => void;
+  setVoiceError: (error: string | null) => void;
+  requestJoinVoiceChannel: (channel: Channel) => void;
   
   // 侧边栏状态
   isSidebarOpen: boolean;
@@ -137,7 +162,13 @@ export const useChatStore = create<ChatState>((set) => {
         isInCall: false,
         isJoiningCall: false,
         localStream: null,
-        remoteStreams: new Map()
+        remoteStreams: new Map(),
+        activeVoiceChannel: null,
+        voiceParticipants: [],
+        voiceIsMuted: false,
+        voiceIsDeafened: false,
+        voiceError: null,
+        voiceJoinRequest: null
       });
     },
     
@@ -188,6 +219,9 @@ export const useChatStore = create<ChatState>((set) => {
     addMessage: (message) => set((state) => {
       // 确保state.messages是数组
       const currentMessages = Array.isArray(state.messages) ? state.messages : [];
+      if (currentMessages.some((item) => item.id === message.id)) {
+        return {};
+      }
       // 创建新消息数组，包含现有消息和新消息
       const newMessages = [...currentMessages, message];
       // 按createdAt正序排序
@@ -198,7 +232,7 @@ export const useChatStore = create<ChatState>((set) => {
       });
       return { messages: newMessages };
     }),
-    setMessages: (messages) => set((state) => {
+    setMessages: (messages) => set(() => {
       // 确保只设置数组到messages
       const validMessages = Array.isArray(messages) ? messages : [];
       // 按createdAt正序排序
@@ -236,13 +270,26 @@ export const useChatStore = create<ChatState>((set) => {
     isJoiningCall: false,
     localStream: null,
     remoteStreams: new Map(),
+    activeVoiceChannel: null,
+    voiceParticipants: [],
+    voiceIsMuted: false,
+    voiceIsDeafened: false,
+    voiceInputVolume: 100,
+    voiceOutputVolume: 100,
+    voiceError: null,
+    voiceJoinRequest: null,
     
     joinCall: () => set({ isInCall: true, isJoiningCall: false }),
     leaveCall: () => set({
       isInCall: false,
       isJoiningCall: false,
       localStream: null,
-      remoteStreams: new Map()
+      remoteStreams: new Map(),
+      activeVoiceChannel: null,
+      voiceParticipants: [],
+      voiceIsMuted: false,
+      voiceIsDeafened: false,
+      voiceError: null
     }),
     toggleMute: () => set((state) => {
       // 这里只是示例，实际的静音逻辑需要在组件中处理
@@ -267,6 +314,14 @@ export const useChatStore = create<ChatState>((set) => {
         isInCall: newRemoteStreams.size > 0
       };
     }),
+    setActiveVoiceChannel: (channel) => set({ activeVoiceChannel: channel }),
+    setVoiceParticipants: (participants) => set({ voiceParticipants: participants }),
+    setVoiceMuted: (isMuted) => set({ voiceIsMuted: isMuted }),
+    setVoiceDeafened: (isDeafened) => set({ voiceIsDeafened: isDeafened }),
+    setVoiceInputVolume: (volume) => set({ voiceInputVolume: Math.max(0, Math.min(200, volume)) }),
+    setVoiceOutputVolume: (volume) => set({ voiceOutputVolume: Math.max(0, Math.min(100, volume)) }),
+    setVoiceError: (error) => set({ voiceError: error }),
+    requestJoinVoiceChannel: (channel) => set({ voiceJoinRequest: { channel, nonce: Date.now() } }),
     
     // 侧边栏状态
     isSidebarOpen: true,

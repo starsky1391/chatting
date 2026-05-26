@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from 'next/dynamic';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useParams, usePathname } from 'next/navigation';
 import { useChatStore } from '@/store/useChatStore';
 import { config } from '@/lib/config';
@@ -35,6 +35,37 @@ export default function GroupPage() {
   const setCurrentGroupId = useChatStore((state) => state.setCurrentGroupId);
   const setCurrentChannel = useChatStore((state) => state.setCurrentChannel);
 
+  const fetchGroupPreview = useCallback(async (inviteCode: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${config.api.baseUrl}/api/invite/${encodeURIComponent(inviteCode)}/preview`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+        setError('邀请码无效或群组不存在');
+        setIsLoading(false);
+        return;
+      }
+
+      const data = await response.json();
+      const group = data.data as GroupPreview;
+      setGroupPreview(group);
+
+      // If already a member, set as current group and show main layout
+      if (group.isMember) {
+        setCurrentGroupId(group.id);
+        setCurrentChannel(null);
+      }
+
+      setIsLoading(false);
+    } catch (err) {
+      console.error('Failed to fetch group preview:', err);
+      setError('加载群组信息失败');
+      setIsLoading(false);
+    }
+  }, [setCurrentChannel, setCurrentGroupId]);
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     const user = localStorage.getItem('user');
@@ -66,40 +97,11 @@ export default function GroupPage() {
       // Convert URL-safe format back: replace _ with # for API lookup
       // e.g. "ABCD1234EFGH_1" -> "ABCD1234EFGH#1"
       const inviteCode = inviteCodeParam.replace(/_(\d+)$/, '#$1');
-      fetchGroupPreview(inviteCode);
-    }
-  }, [router, params.userId, params.inviteCode, pathname]);
-
-  const fetchGroupPreview = async (inviteCode: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/invite/${encodeURIComponent(inviteCode)}/preview`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      queueMicrotask(() => {
+        void fetchGroupPreview(inviteCode);
       });
-
-      if (!response.ok) {
-        setError('邀请码无效或群组不存在');
-        setIsLoading(false);
-        return;
-      }
-
-      const data = await response.json();
-      const group = data.data as GroupPreview;
-      setGroupPreview(group);
-
-      // If already a member, set as current group and show main layout
-      if (group.isMember) {
-        setCurrentGroupId(group.id);
-        setCurrentChannel(null);
-      }
-
-      setIsLoading(false);
-    } catch (err) {
-      console.error('Failed to fetch group preview:', err);
-      setError('加载群组信息失败');
-      setIsLoading(false);
     }
-  };
+  }, [fetchGroupPreview, router, params.userId, params.inviteCode, pathname]);
 
   const handleJoinGroup = async () => {
     if (!groupPreview || isJoining) return;

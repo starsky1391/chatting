@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 import React, { useState, useEffect, useRef } from 'react';
 import { Room, RoomEvent, Participant, Track, createLocalAudioTrack } from 'livekit-client';
 import { useChatStore } from '@/store/useChatStore';
@@ -6,8 +7,15 @@ import { api } from '@/lib/api';
 import { sendWebSocketMessage, onWebSocketMessage } from '@/lib/socket';
 
 interface VoiceRoomProps {
-  currentChannel: any;
+  currentChannel: VoiceChannel | null;
 }
+
+type VoiceChannel = {
+  id: number;
+  name?: string;
+  type: 'voice' | 'text';
+  maxMembers?: number;
+};
 
 interface CallParticipant {
   userId: number;
@@ -22,6 +30,18 @@ interface ParticipantData {
   isSpeaking: boolean;
   isMuted: boolean;
 }
+
+type CallStatusPayload = {
+  channelId?: number;
+  action?: 'join' | 'leave';
+  userId: number;
+  username?: string;
+  avatarUrl?: string;
+};
+
+type ParticipantMetadata = {
+  avatarUrl?: string;
+};
 
 export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
   const { currentUser, isInCall, joinCall, leaveCall } = useChatStore();
@@ -46,7 +66,8 @@ export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
   useEffect(() => {
     console.log('[Voice] Setting up call status listener for channel:', currentChannel?.id);
     
-    const unsubscribe = onWebSocketMessage('voice:call-status', (data: any) => {
+    const unsubscribe = onWebSocketMessage('voice:call-status', (rawData) => {
+      const data = rawData as CallStatusPayload;
       console.log('[Voice] Call status update received:', data);
       if (data.channelId !== currentChannel?.id) {
         console.log('[Voice] Ignoring - channelId mismatch:', data.channelId, 'vs', currentChannel?.id);
@@ -64,7 +85,7 @@ export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
           console.log('[Voice] Adding user to call:', data.userId, data.username);
           return [...prev, {
             userId: data.userId,
-            username: data.username,
+            username: data.username || 'Unknown',
             avatarUrl: data.avatarUrl,
           }];
         } else if (data.action === 'leave') {
@@ -218,7 +239,7 @@ export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
       newMap.set(participant.identity, {
         identity: participant.identity,
         name: participant.name || participant.identity,
-        avatarUrl: participant.metadata ? JSON.parse(participant.metadata).avatarUrl : undefined,
+        avatarUrl: participant.metadata ? (JSON.parse(participant.metadata) as ParticipantMetadata).avatarUrl : undefined,
         isSpeaking: false,
         isMuted: false,
       });
@@ -253,10 +274,9 @@ export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
       }
       handleLeaveCall();
     };
+    // Cleanup only on unmount; call state is managed by explicit join/leave actions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // 合并 LiveKit 参与者和 WebSocket 通话状态
-  const displayParticipants = isInCall ? Array.from(participants.values()) : callParticipants;
 
   return (
     <div className="flex flex-col h-full bg-gray-900">

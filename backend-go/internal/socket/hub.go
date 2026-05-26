@@ -188,6 +188,20 @@ func (h *Hub) SendToUserInRoom(roomID string, targetUserID uint, message *Messag
 	}
 }
 
+// SendToUser sends a message to every active connection for one user.
+func (h *Hub) SendToUser(targetUserID uint, message *Message) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, client := range h.Clients {
+		if client.UserID == targetUserID {
+			if err := client.Conn.WriteJSON(message); err != nil {
+				log.Printf("Error sending message to client %s: %v", client.ID, err)
+			}
+		}
+	}
+}
+
 // BroadcastToUserChannels sends a message to all channels a user is in
 func (h *Hub) BroadcastToUserChannels(userID uint, message *Message) {
 	h.mu.RLock()

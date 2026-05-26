@@ -198,6 +198,15 @@
   background: #52525b;
 }
 
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Focus Ring */
 .focus-ring:focus {
   outline: none;

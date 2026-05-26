@@ -1,7 +1,9 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 import React, { useState, KeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { config } from '@/lib/config';
+import { UserContextMenu, useUserContextMenu } from '@/components/user/UserContextMenu';
 
 interface Message {
   id: number;
@@ -24,6 +26,7 @@ interface MessageBubbleProps {
 }
 
 const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
+  const { menu, openUserMenu, closeUserMenu } = useUserContextMenu();
   const safeMessage = {
     id: message.id || 0,
     content: message.content || { type: 'text', body: '' },
@@ -69,15 +72,23 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
 
   return (
     <div className={`flex items-start gap-3 message-bubble ${safeMessage.isOwn ? 'justify-end' : 'justify-start'}`}>
+      <UserContextMenu menu={menu} onClose={closeUserMenu} />
+
       {!safeMessage.isOwn && (
-        <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-sm font-bold shadow-lg overflow-hidden">
+        <div
+          className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-sm font-bold shadow-lg overflow-hidden cursor-pointer"
+          onContextMenu={(event) => openUserMenu(event, safeMessage.sender)}
+        >
           {renderAvatar()}
         </div>
       )}
 
       <div className="max-w-[70%]">
         <div className={`flex items-center gap-2 mb-1.5 ${safeMessage.isOwn ? 'justify-end' : 'justify-start'}`}>
-          <span className={`text-sm font-medium ${safeMessage.isOwn ? 'text-indigo-400' : 'text-zinc-300'}`}>
+          <span
+            className={`text-sm font-medium cursor-pointer ${safeMessage.isOwn ? 'text-indigo-400' : 'text-zinc-300'}`}
+            onContextMenu={(event) => openUserMenu(event, safeMessage.sender)}
+          >
             {safeMessage.sender.username}
           </span>
           <span className="text-xs text-zinc-500">
@@ -142,7 +153,10 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
       </div>
 
       {safeMessage.isOwn && (
-        <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-sm font-bold shadow-lg overflow-hidden">
+        <div
+          className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-sm font-bold shadow-lg overflow-hidden cursor-pointer"
+          onContextMenu={(event) => openUserMenu(event, safeMessage.sender)}
+        >
           {renderAvatar()}
         </div>
       )}

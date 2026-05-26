@@ -54,6 +54,15 @@ func (r *UserRepository) FindOnlineUsers() ([]model.User, error) {
 	return users, err
 }
 
+func (r *UserRepository) Search(query string, currentUserID uint, limit int) ([]model.User, error) {
+	var users []model.User
+	pattern := "%" + query + "%"
+	err := r.db.Where("id <> ? AND (username ILIKE ? OR email ILIKE ?)", currentUserID, pattern, pattern).
+		Limit(limit).
+		Find(&users).Error
+	return users, err
+}
+
 type ChannelGroupRepository struct {
 	db *gorm.DB
 }
@@ -153,6 +162,16 @@ func (r *ChannelRepository) FindByGroupIDAndType(groupID uint, channelType strin
 	var channels []model.Channel
 	err := r.db.Where("group_id = ? AND type = ?", groupID, channelType).Order("position asc").Find(&channels).Error
 	return channels, err
+}
+
+func (r *ChannelRepository) NameExists(groupID uint, name string, excludeID uint) bool {
+	var count int64
+	query := r.db.Model(&model.Channel{}).Where("group_id = ? AND lower(name) = lower(?)", groupID, name)
+	if excludeID != 0 {
+		query = query.Where("id <> ?", excludeID)
+	}
+	query.Count(&count)
+	return count > 0
 }
 
 func (r *ChannelRepository) Update(channel *model.Channel) error {
@@ -285,4 +304,198 @@ func (r *UserGroupRepository) GetUserRole(userID, groupID uint) string {
 		return ""
 	}
 	return userGroup.Role
+}
+
+type WechatBindingRepository struct {
+	db *gorm.DB
+}
+
+func NewWechatBindingRepository(db *gorm.DB) *WechatBindingRepository {
+	return &WechatBindingRepository{db: db}
+}
+
+func (r *WechatBindingRepository) Create(binding *model.WechatBinding) error {
+	return r.db.Create(binding).Error
+}
+
+func (r *WechatBindingRepository) FindByOpenID(openID string) (*model.WechatBinding, error) {
+	var binding model.WechatBinding
+	err := r.db.Preload("User").Where("openid = ?", openID).First(&binding).Error
+	return &binding, err
+}
+
+func (r *WechatBindingRepository) FindByUserID(userID uint) (*model.WechatBinding, error) {
+	var binding model.WechatBinding
+	err := r.db.Where("user_id = ?", userID).First(&binding).Error
+	return &binding, err
+}
+
+func (r *WechatBindingRepository) Delete(userID uint) error {
+	return r.db.Where("user_id = ?", userID).Delete(&model.WechatBinding{}).Error
+}
+
+type FriendRequestRepository struct {
+	db *gorm.DB
+}
+
+func NewFriendRequestRepository(db *gorm.DB) *FriendRequestRepository {
+	return &FriendRequestRepository{db: db}
+}
+
+func (r *FriendRequestRepository) Create(req *model.FriendRequest) error {
+	return r.db.Create(req).Error
+}
+
+func (r *FriendRequestRepository) FindByID(id uint) (*model.FriendRequest, error) {
+	var req model.FriendRequest
+	err := r.db.Preload("Requester").Preload("Addressee").First(&req, id).Error
+	return &req, err
+}
+
+func (r *FriendRequestRepository) FindBetween(userA, userB uint) (*model.FriendRequest, error) {
+	var req model.FriendRequest
+	err := r.db.Where(
+		"(requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)",
+		userA, userB, userB, userA,
+	).Order("created_at desc").First(&req).Error
+	return &req, err
+}
+
+func (r *FriendRequestRepository) FindIncoming(userID uint) ([]model.FriendRequest, error) {
+	var requests []model.FriendRequest
+	err := r.db.Preload("Requester").Preload("Addressee").
+		Where("addressee_id = ? AND status = ?", userID, "pending").
+		Order("created_at desc").
+		Find(&requests).Error
+	return requests, err
+}
+
+func (r *FriendRequestRepository) FindOutgoing(userID uint) ([]model.FriendRequest, error) {
+	var requests []model.FriendRequest
+	err := r.db.Preload("Requester").Preload("Addressee").
+		Where("requester_id = ? AND status = ?", userID, "pending").
+		Order("created_at desc").
+		Find(&requests).Error
+	return requests, err
+}
+
+func (r *FriendRequestRepository) Update(req *model.FriendRequest) error {
+	return r.db.Save(req).Error
+}
+
+type FriendshipRepository struct {
+	db *gorm.DB
+}
+
+func NewFriendshipRepository(db *gorm.DB) *FriendshipRepository {
+	return &FriendshipRepository{db: db}
+}
+
+func (r *FriendshipRepository) Exists(userID, friendID uint) bool {
+	var count int64
+	r.db.Model(&model.Friendship{}).Where("user_id = ? AND friend_id = ?", userID, friendID).Count(&count)
+	return count > 0
+}
+
+func (r *FriendshipRepository) CreatePair(userA, userB uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		pair := []model.Friendship{
+			{UserID: userA, FriendID: userB},
+			{UserID: userB, FriendID: userA},
+		}
+		for _, friendship := range pair {
+			var count int64
+			tx.Model(&model.Friendship{}).
+				Where("user_id = ? AND friend_id = ?", friendship.UserID, friendship.FriendID).
+				Count(&count)
+			if count == 0 {
+				if err := tx.Create(&friendship).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func (r *FriendshipRepository) FindByUserID(userID uint) ([]model.Friendship, error) {
+	var friendships []model.Friendship
+	err := r.db.Preload("Friend").
+		Where("user_id = ?", userID).
+		Order("created_at desc").
+		Find(&friendships).Error
+	return friendships, err
+}
+
+func (r *FriendshipRepository) DeletePair(userA, userB uint) error {
+	return r.db.Where(
+		"(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
+		userA, userB, userB, userA,
+	).Delete(&model.Friendship{}).Error
+}
+
+type DirectConversationRepository struct {
+	db *gorm.DB
+}
+
+func NewDirectConversationRepository(db *gorm.DB) *DirectConversationRepository {
+	return &DirectConversationRepository{db: db}
+}
+
+func (r *DirectConversationRepository) FindByPairKey(pairKey string) (*model.DirectConversation, error) {
+	var conversation model.DirectConversation
+	err := r.db.Preload("Members").Where("pair_key = ?", pairKey).First(&conversation).Error
+	return &conversation, err
+}
+
+func (r *DirectConversationRepository) Create(conversation *model.DirectConversation) error {
+	return r.db.Create(conversation).Error
+}
+
+func (r *DirectConversationRepository) FindByUserID(userID uint) ([]model.DirectConversation, error) {
+	var conversations []model.DirectConversation
+	err := r.db.Preload("Members").
+		Joins("JOIN direct_conversation_members dcm ON dcm.direct_conversation_id = direct_conversations.id").
+		Where("dcm.user_id = ?", userID).
+		Order("COALESCE(last_message_at, direct_conversations.created_at) desc").
+		Find(&conversations).Error
+	return conversations, err
+}
+
+func (r *DirectConversationRepository) FindByIDForUser(conversationID, userID uint) (*model.DirectConversation, error) {
+	var conversation model.DirectConversation
+	err := r.db.Preload("Members").
+		Joins("JOIN direct_conversation_members dcm ON dcm.direct_conversation_id = direct_conversations.id").
+		Where("direct_conversations.id = ? AND dcm.user_id = ?", conversationID, userID).
+		First(&conversation).Error
+	return &conversation, err
+}
+
+func (r *DirectConversationRepository) Touch(conversationID uint) error {
+	return r.db.Model(&model.DirectConversation{}).
+		Where("id = ?", conversationID).
+		Update("last_message_at", gorm.Expr("NOW()")).Error
+}
+
+type DirectMessageRepository struct {
+	db *gorm.DB
+}
+
+func NewDirectMessageRepository(db *gorm.DB) *DirectMessageRepository {
+	return &DirectMessageRepository{db: db}
+}
+
+func (r *DirectMessageRepository) Create(message *model.DirectMessage) error {
+	return r.db.Create(message).Error
+}
+
+func (r *DirectMessageRepository) FindByConversationID(conversationID uint, limit, offset int) ([]model.DirectMessage, error) {
+	var messages []model.DirectMessage
+	err := r.db.Preload("Sender").
+		Where("conversation_id = ?", conversationID).
+		Order("created_at desc").
+		Limit(limit).
+		Offset(offset).
+		Find(&messages).Error
+	return messages, err
 }

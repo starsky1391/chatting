@@ -4,10 +4,12 @@ import (
 	"strings"
 	"time"
 
+	"chat-backend/internal/config"
+	"chat-backend/internal/model"
+	"chat-backend/pkg/response"
+
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"chat-backend/internal/config"
-	"chat-backend/pkg/response"
 )
 
 type Claims struct {
@@ -89,6 +91,36 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		// Store claims in context
 		c.Set("userID", claims.UserID)
 		c.Set("username", claims.Username)
+		c.Next()
+	}
+}
+
+type RoleUserRepository interface {
+	FindByID(id uint) (*model.User, error)
+}
+
+func AdminMiddleware(userRepo RoleUserRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetUint("userID")
+		if userID == 0 {
+			response.Unauthorized(c, "Authentication required")
+			c.Abort()
+			return
+		}
+
+		user, err := userRepo.FindByID(userID)
+		if err != nil {
+			response.Unauthorized(c, "User not found")
+			c.Abort()
+			return
+		}
+		if user.Role != "admin" {
+			response.Forbidden(c, "Admin access required")
+			c.Abort()
+			return
+		}
+
+		c.Set("role", user.Role)
 		c.Next()
 	}
 }

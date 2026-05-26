@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
 
 	"chat-backend/internal/service"
@@ -73,6 +74,34 @@ func (c *ChannelGroupController) CreateGroup(ctx *gin.Context) {
 	}
 
 	response.Created(ctx, group)
+}
+
+func (c *ChannelGroupController) UpdateGroup(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+
+	var input service.UpdateGroupInput
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+
+	group, err := c.groupService.UpdateGroup(uint(id), userID, input)
+	if err != nil {
+		if errors.Is(err, service.ErrNoPermission) {
+			response.Forbidden(ctx, "You don't have permission to edit this group")
+			return
+		}
+		response.InternalError(ctx, "Failed to update group")
+		return
+	}
+
+	response.Success(ctx, group)
 }
 
 func (c *ChannelGroupController) JoinGroup(ctx *gin.Context) {
@@ -205,6 +234,12 @@ func (c *ChannelGroupController) GetActiveChannelMembers(ctx *gin.Context) {
 func (c *ChannelGroupController) CreateChannel(ctx *gin.Context) {
 	userID := ctx.GetUint("userID")
 
+	groupID, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+
 	var input service.CreateChannelInput
 	if err := ctx.ShouldBindJSON(&input); err != nil {
 		response.BadRequest(ctx, err.Error())
@@ -212,9 +247,14 @@ func (c *ChannelGroupController) CreateChannel(ctx *gin.Context) {
 	}
 
 	input.CreatedBy = userID
+	input.GroupID = uint(groupID)
 
 	channel, err := c.groupService.CreateChannel(input)
 	if err != nil {
+		if errors.Is(err, service.ErrChannelNameExists) {
+			response.BadRequest(ctx, "Channel name already exists")
+			return
+		}
 		response.InternalError(ctx, "Failed to create channel")
 		return
 	}
@@ -236,6 +276,38 @@ func (c *ChannelGroupController) GetGroupChannels(ctx *gin.Context) {
 	}
 
 	response.Success(ctx, channels)
+}
+
+func (c *ChannelGroupController) UpdateChannel(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+
+	channelID, err := strconv.ParseUint(ctx.Param("channelId"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid channel ID")
+		return
+	}
+
+	var input service.UpdateChannelInput
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+
+	channel, err := c.groupService.UpdateChannel(uint(channelID), userID, input)
+	if err != nil {
+		if errors.Is(err, service.ErrNoPermission) {
+			response.Forbidden(ctx, "You don't have permission to edit this channel")
+			return
+		}
+		if errors.Is(err, service.ErrChannelNameExists) {
+			response.BadRequest(ctx, "Channel name already exists")
+			return
+		}
+		response.InternalError(ctx, "Failed to update channel")
+		return
+	}
+
+	response.Success(ctx, channel)
 }
 
 func (c *ChannelGroupController) GetTextChannels(ctx *gin.Context) {

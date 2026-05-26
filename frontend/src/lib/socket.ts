@@ -11,12 +11,18 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = 2000;
 
 // Message handlers
-type MessageHandler = (data: any) => void;
+type MessageHandler = (data: unknown) => void;
 const messageHandlers: Map<string, Set<MessageHandler>> = new Map();
 
+type WebSocketEnvelope = {
+  type?: string;
+  payload?: unknown;
+  [key: string]: unknown;
+};
+
 // Connection state callbacks
-let onConnectCallback: (() => void) | null = null;
-let onDisconnectCallback: (() => void) | null = null;
+const connectCallbacks = new Set<() => void>();
+const disconnectCallbacks = new Set<() => void>();
 
 // Get or create WebSocket instance
 export const getWebSocket = (): WebSocket | null => {
@@ -72,22 +78,22 @@ export const connectWebSocket = (): Promise<WebSocket> => {
         console.log('WebSocket connected');
         isConnecting = false;
         reconnectAttempts = 0;
-        if (onConnectCallback) onConnectCallback();
+        connectCallbacks.forEach((callback) => callback());
         resolve(wsInstance!);
       };
 
       wsInstance.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data);
+          const message = JSON.parse(event.data) as WebSocketEnvelope;
           const { type, payload } = message;
 
           // Debug log for voice events
-          if (type && type.startsWith('voice:')) {
+          if (type?.startsWith('voice:')) {
             console.log('[WS] Received:', type, payload);
           }
 
           // Call registered handlers
-          const handlers = messageHandlers.get(type);
+          const handlers = type ? messageHandlers.get(type) : undefined;
           if (handlers) {
             handlers.forEach(handler => handler(payload || message));
           }
@@ -97,12 +103,12 @@ export const connectWebSocket = (): Promise<WebSocket> => {
           if (wildcardHandlers) {
             wildcardHandlers.forEach(handler => handler(message));
           }
-        } catch (error) {
+        } catch {
           // Silently ignore parse errors for non-JSON messages
         }
       };
 
-      wsInstance.onerror = (error) => {
+      wsInstance.onerror = () => {
         // Don't log - WebSocket errors are expected during reconnection
         isConnecting = false;
       };
@@ -111,7 +117,7 @@ export const connectWebSocket = (): Promise<WebSocket> => {
         console.log('WebSocket closed:', event.code, event.reason);
         isConnecting = false;
         wsInstance = null;
-        if (onDisconnectCallback) onDisconnectCallback();
+        disconnectCallbacks.forEach((callback) => callback());
 
         // Attempt reconnect if not a normal closure
         if (event.code !== 1000 && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -131,7 +137,7 @@ export const connectWebSocket = (): Promise<WebSocket> => {
 };
 
 // Send message
-export const sendWebSocketMessage = (type: string, payload?: any): boolean => {
+export const sendWebSocketMessage = (type: string, payload?: unknown): boolean => {
   if (!wsInstance || wsInstance.readyState !== WebSocket.OPEN) {
     console.warn('WebSocket not connected');
     return false;
@@ -139,7 +145,9 @@ export const sendWebSocketMessage = (type: string, payload?: any): boolean => {
 
   try {
     // 先展开 payload,再覆盖 type,确保 type 不被 payload 覆盖
-    const message = { ...payload, type };
+    const message = payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? { ...payload, type }
+      : { type, payload };
     // Debug log for voice events
     if (type.startsWith('voice:')) {
       console.log('[WS] Sending:', type, payload);
@@ -173,11 +181,17 @@ export const onWebSocketMessage = (type: string, handler: MessageHandler): (() =
 
 // Set connection callbacks
 export const onConnect = (callback: () => void) => {
-  onConnectCallback = callback;
+  connectCallbacks.add(callback);
+  return () => {
+    connectCallbacks.delete(callback);
+  };
 };
 
 export const onDisconnect = (callback: () => void) => {
-  onDisconnectCallback = callback;
+  disconnectCallbacks.add(callback);
+  return () => {
+    disconnectCallbacks.delete(callback);
+  };
 };
 
 // Join a channel
@@ -203,9 +217,6 @@ export const cleanupWebSocket = (): void => {
   }
   isConnecting = false;
   reconnectAttempts = 0;
-  messageHandlers.clear();
-  onConnectCallback = null;
-  onDisconnectCallback = null;
 };
 
 // Check if connected
@@ -218,30 +229,30 @@ export const getSocket = () => {
   return {
     connected: wsInstance?.readyState === WebSocket.OPEN,
     id: 'ws-' + Date.now(),
-    on: (event: string, callback: (data?: any) => void) => {
+    on: (event: string, callback: (data?: unknown) => void) => {
       if (event === 'connect') {
         if (wsInstance?.readyState === WebSocket.OPEN) {
           callback({});
         }
-        onConnect(() => callback({}));
-        return () => {};
+        return onConnect(() => callback({}));
       } else if (event === 'disconnect') {
-        onDisconnect(() => callback({}));
-        return () => {};
+        return onDisconnect(() => callback({}));
       } else {
         return onWebSocketMessage(event, callback);
       }
     },
-    off: (event: string, callback?: (data?: any) => void) => {
+    off: (_event: string, _callback?: (data?: unknown) => void) => {
+      void _event;
+      void _callback;
       // Handler removal is handled by the returned unsubscribe function
     },
-    once: (event: string, callback: (data?: any) => void) => {
+    once: (event: string, callback: (data?: unknown) => void) => {
       const unsubscribe = onWebSocketMessage(event, (data) => {
         callback(data);
         unsubscribe();
       });
     },
-    emit: (event: string, data?: any) => {
+    emit: (event: string, data?: unknown) => {
       return sendWebSocketMessage(event, data);
     },
     connect: () => {
@@ -252,7 +263,7 @@ export const getSocket = () => {
     },
     hasListeners: () => messageHandlers.size > 0,
     io: {}
-  } as any;
+  };
 };
 
 export const cleanupSocket = cleanupWebSocket;

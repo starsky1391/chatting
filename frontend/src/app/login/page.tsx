@@ -20,8 +20,8 @@ function LoginForm() {
       email: string;
       avatar: string;
       avatarUrl?: string;
-      status: string;
-      role: string;
+      isOnline: boolean;
+      role: 'admin' | 'moderator' | 'member';
       bio?: string;
     };
     accessToken: string;
@@ -34,12 +34,14 @@ function LoginForm() {
 
     try {
       const data = await api.post<LoginResponse>('/api/auth/login', { email, password });
-      login(data.user as any, data.accessToken);
+      login(data.user, data.accessToken);
 
       // Get redirect from URL params directly (in case state wasn't set)
       const redirect = searchParams.get('redirect');
       if (redirect) {
         router.push(redirect);
+      } else if (data.user.role === 'admin') {
+        router.push('/admin');
       } else {
         router.push(`/${data.user.id}`);
       }

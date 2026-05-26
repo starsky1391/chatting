@@ -1,19 +1,29 @@
 package service
 
 import (
+	"context"
+	"time"
+
+	"chat-backend/internal/events"
 	"chat-backend/internal/model"
 	"chat-backend/internal/repository"
+	"chat-backend/pkg/logger"
 )
 
 type MessageService struct {
 	messageRepo *repository.MessageRepository
 	userRepo    *repository.UserRepository
+	publisher   events.Publisher
 }
 
-func NewMessageService(messageRepo *repository.MessageRepository, userRepo *repository.UserRepository) *MessageService {
+func NewMessageService(messageRepo *repository.MessageRepository, userRepo *repository.UserRepository, publisher events.Publisher) *MessageService {
+	if publisher == nil {
+		publisher = events.NoopPublisher{}
+	}
 	return &MessageService{
 		messageRepo: messageRepo,
 		userRepo:    userRepo,
+		publisher:   publisher,
 	}
 }
 
@@ -42,6 +52,14 @@ func (s *MessageService) CreateMessage(input CreateMessageInput) (*model.Message
 	message.Sender = *user
 
 	response := model.ToMessageResponse(*message)
+	events.DispatchChannelMessageCreatedToGlobalHub(input.ChannelID, response)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := s.publisher.PublishChannelMessageCreated(ctx, input.ChannelID, response); err != nil {
+		logger.Warn("Failed to publish channel message event: %v", err)
+	}
+
 	return &response, nil
 }
 

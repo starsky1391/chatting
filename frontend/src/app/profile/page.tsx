@@ -1,5 +1,6 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+/* eslint-disable @next/next/no-img-element */
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useChatStore } from '@/store/useChatStore';
@@ -28,11 +29,7 @@ export default function ProfilePage() {
     bio: ''
   });
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
     try {
       const data = await api.get('/api/user') as UserProfile;
       setProfile(data);
@@ -46,7 +43,13 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void fetchProfile();
+    });
+  }, [fetchProfile]);
 
   const handleSave = async () => {
     setSaving(true);

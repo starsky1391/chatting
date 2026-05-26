@@ -27,7 +27,7 @@ export default function Home() {
       }
     }
 
-    setIsLoading(false);
+    queueMicrotask(() => setIsLoading(false));
   }, [router]);
 
   if (isLoading) {

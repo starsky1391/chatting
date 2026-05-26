@@ -11,10 +11,6 @@ export const useSocket = (options: UseSocketOptions) => {
   const [isConnectedState, setIsConnectedState] = useState(false);
   const [socketError, setSocketError] = useState<Error | null>(null);
 
-  // 错误去重跟踪
-  const lastErrorTime = useRef(0);
-  const lastErrorMsg = useRef('');
-
   // 重连状态管理
   const reconnectAttempts = useRef(0);
   const lastReconnectTime = useRef(0);
@@ -129,6 +125,8 @@ export const useSocket = (options: UseSocketOptions) => {
 
   // 移除事件监听
   const off = useCallback((event: string, callback?: (...args: unknown[]) => void) => {
+    void event;
+    void callback;
     // Handler removal is handled by the returned unsubscribe function from on()
   }, []);
 
@@ -137,12 +135,12 @@ export const useSocket = (options: UseSocketOptions) => {
     let timeoutId: NodeJS.Timeout;
 
     // 设置连接状态监听
-    onConnect(() => {
+    const unsubscribeConnect = onConnect(() => {
       setIsConnectedState(true);
       setSocketError(null);
     });
 
-    onDisconnect(() => {
+    const unsubscribeDisconnect = onDisconnect(() => {
       setIsConnectedState(false);
     });
 
@@ -159,6 +157,8 @@ export const useSocket = (options: UseSocketOptions) => {
 
     return () => {
       clearTimeout(timeoutId);
+      unsubscribeConnect();
+      unsubscribeDisconnect();
     };
   }, [autoConnect, connect]);
 

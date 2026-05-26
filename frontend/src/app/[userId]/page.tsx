@@ -40,7 +40,7 @@ export default function UserHomePage() {
       }
     }
 
-    setIsLoading(false);
+    queueMicrotask(() => setIsLoading(false));
   }, [router, params.userId, pathname]);
 
   if (isLoading) {

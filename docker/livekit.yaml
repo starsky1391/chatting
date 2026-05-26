@@ -5,7 +5,7 @@ port: 7880
 rtc:
   # UDP 端口范围 (需要在防火墙开放)
   port_range_start: 50000
-  port_range_end: 60000
+  port_range_end: 50200
   # 本地开发使用 host.docker.internal 或留空自动检测
   # node_ip 会自动检测容器 IP，客户端通过 nginx 代理连接
 

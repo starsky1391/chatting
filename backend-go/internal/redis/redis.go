@@ -7,9 +7,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"chat-backend/internal/config"
 	"chat-backend/internal/model"
+	"github.com/redis/go-redis/v9"
 )
 
 type RedisClient struct {
@@ -203,6 +203,15 @@ func (r *RedisClient) GetVoiceChannelParticipants(channelID uint) ([]map[string]
 		participants = append(participants, p)
 	}
 	return participants, nil
+}
+
+func (r *RedisClient) IsVoiceChannelParticipant(channelID uint, userID uint) bool {
+	if r == nil {
+		return false
+	}
+
+	key := fmt.Sprintf("voice:channel:%d:participants", channelID)
+	return r.client.HExists(r.ctx, key, fmt.Sprintf("%d", userID)).Val()
 }
 
 // Group members cache

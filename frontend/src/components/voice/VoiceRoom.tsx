@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useChatStore } from '@/store/useChatStore';
 import { config } from '@/lib/config';
@@ -8,9 +9,15 @@ import {
 } from '@/lib/socket';
 
 interface VoiceRoomProps {
-  currentChannel: any;
+  currentChannel: VoiceChannel | null;
   onBack: () => void;
 }
+
+type VoiceChannel = {
+  id: number;
+  name?: string;
+  type: 'voice' | 'text';
+};
 
 interface VoiceParticipant {
   userId: number;
@@ -19,6 +26,34 @@ interface VoiceParticipant {
   isSpeaking: boolean;
   stream?: MediaStream;
 }
+
+type BrowserWindow = Window & typeof globalThis & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
+type VoiceParticipantPayload = {
+  userId: number;
+  username?: string;
+  avatarUrl?: string;
+};
+
+type VoiceParticipantsPayload = {
+  participants?: VoiceParticipantPayload[];
+};
+
+type VoiceUserPayload = VoiceParticipantPayload;
+
+type VoiceSignalPayload = {
+  senderId?: number;
+  targetUserId?: number;
+  signalType?: string;
+  type?: string;
+  username?: string;
+  avatarUrl?: string;
+  offer?: RTCSessionDescriptionInit;
+  answer?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
+};
 
 const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
   const { currentUser, isInCall, joinCall, leaveCall, setLocalStream } = useChatStore();
@@ -44,7 +79,9 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
         clearInterval(existingInterval);
       }
 
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioContextClass = window.AudioContext || (window as BrowserWindow).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const audioContext = new AudioContextClass();
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
 
@@ -292,7 +329,9 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
   // Auto-join when entering voice channel
   useEffect(() => {
     if (currentChannel && currentChannel.type === 'voice' && !isInCall && !isConnecting) {
-      handleJoinCall();
+      queueMicrotask(() => {
+        void handleJoinCall();
+      });
     }
 
     return () => {
@@ -300,13 +339,14 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
         handleLeaveCall();
       }
     };
-  }, [currentChannel?.id]); // Only run when channel changes
+  }, [currentChannel, handleJoinCall, handleLeaveCall, isConnecting, isInCall]);
 
   // WebSocket event handlers
   useEffect(() => {
     if (!currentChannel || currentChannel.type !== 'voice') return;
 
-    const handleVoiceParticipants = async (data: any) => {
+    const handleVoiceParticipants = async (rawData: unknown) => {
+      const data = rawData as VoiceParticipantsPayload;
       if (!currentUser || !Array.isArray(data.participants)) return;
       console.log('[Voice] participants list:', data.participants.length, data.participants);
       // 把房间已有的人都加入参与者列表,并主动发 offer
@@ -327,7 +367,8 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
       }
     };
 
-    const handleVoiceUserJoined = async (data: any) => {
+    const handleVoiceUserJoined = async (rawData: unknown) => {
+      const data = rawData as VoiceUserPayload;
       if (!currentUser || data.userId === currentUser.id) return;
       console.log('[Voice] user-joined:', data.userId, data.username);
 
@@ -344,7 +385,8 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
       });
     };
 
-    const handleVoiceUserLeft = (data: any) => {
+    const handleVoiceUserLeft = (rawData: unknown) => {
+      const data = rawData as VoiceUserPayload;
       if (data.userId) {
         // Remove participant
         setParticipants(prev => {
@@ -364,23 +406,25 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
       }
     };
 
-    const handleVoiceSignal = async (data: any) => {
+    const handleVoiceSignal = async (rawData: unknown) => {
+      const data = rawData as VoiceSignalPayload;
       if (!currentUser || !data.senderId) return;
+      const senderId = data.senderId;
       // 只处理发给自己的信令
       if (data.targetUserId && data.targetUserId !== currentUser.id) return;
-      if (data.senderId === currentUser.id) return;
+      if (senderId === currentUser.id) return;
 
       try {
-        let pc = peerConnections.current.get(data.senderId);
+        let pc = peerConnections.current.get(senderId);
         const sigType = data.signalType || data.type;
 
         if (sigType === 'offer') {
           // 收到 offer:确保参与者条目存在
           setParticipants(prev => {
-            if (prev.has(data.senderId)) return prev;
+            if (prev.has(senderId)) return prev;
             const newMap = new Map(prev);
-            newMap.set(data.senderId, {
-              userId: data.senderId,
+            newMap.set(senderId, {
+              userId: senderId,
               username: data.username || 'Unknown',
               avatarUrl: data.avatarUrl || '',
               isSpeaking: false
@@ -391,19 +435,20 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
           // 如已有旧连接,先关掉
           if (pc) {
             pc.close();
-            peerConnections.current.delete(data.senderId);
+            peerConnections.current.delete(senderId);
           }
-          pc = createPeerWithTracks(data.senderId);
+          pc = createPeerWithTracks(senderId);
 
+          if (!data.offer) return;
           await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
 
           // 应用所有缓冲的 ICE candidates
-          const pending = pendingIceCandidates.current.get(data.senderId);
+          const pending = pendingIceCandidates.current.get(senderId);
           if (pending) {
             for (const c of pending) {
               try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
             }
-            pendingIceCandidates.current.delete(data.senderId);
+            pendingIceCandidates.current.delete(senderId);
           }
 
           const answer = await pc.createAnswer();
@@ -413,27 +458,30 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
             channelId: currentChannel.id,
             signalType: 'answer',
             answer,
-            targetUserId: data.senderId
+            targetUserId: senderId
           });
         } else if (sigType === 'answer' && pc) {
           if (pc.signalingState === 'have-local-offer') {
+            if (!data.answer) return;
             await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-            const pending = pendingIceCandidates.current.get(data.senderId);
+            const pending = pendingIceCandidates.current.get(senderId);
             if (pending) {
               for (const c of pending) {
                 try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
               }
-              pendingIceCandidates.current.delete(data.senderId);
+              pendingIceCandidates.current.delete(senderId);
             }
           }
         } else if (sigType === 'ice-candidate') {
           if (pc && pc.remoteDescription) {
+            if (!data.candidate) return;
             await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
           } else {
             // 远端描述还没设置,先缓冲
-            const arr = pendingIceCandidates.current.get(data.senderId) || [];
+            const arr = pendingIceCandidates.current.get(senderId) || [];
+            if (!data.candidate) return;
             arr.push(data.candidate);
-            pendingIceCandidates.current.set(data.senderId, arr);
+            pendingIceCandidates.current.set(senderId, arr);
           }
         }
       } catch (error) {

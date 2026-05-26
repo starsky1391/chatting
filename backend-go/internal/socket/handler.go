@@ -162,28 +162,20 @@ func HandleWebSocket(hub *Hub, c *gin.Context) {
 
 			case "send-message":
 				if channelID, ok := msg["channelId"].(float64); ok {
-					roomID := fmt.Sprintf("channel-%d", int(channelID))
-					content, _ := msg["content"].(string)
-
-					// Broadcast message to room
-					hub.BroadcastToRoom(roomID, &Message{
-						Type: "message:create",
-						Room: roomID,
+					log.Printf("Ignoring legacy send-message for channel %d from user %d; messages must be persisted over HTTP", int(channelID), userID)
+					client.Conn.WriteJSON(&Message{
+						Type: "message:error",
 						Payload: map[string]interface{}{
-							"content": content,
-							"sender": map[string]interface{}{
-								"id":        userID,
-								"username":  username,
-								"avatarUrl": avatarUrl,
-							},
 							"channelId": int(channelID),
+							"message":   "send messages through POST /api/channels/:id/messages",
 						},
-					}, "")
+					})
 				}
 
 			case "voice:join":
 				if channelID, ok := msg["channelId"].(float64); ok {
 					roomID := fmt.Sprintf("voice-channel-%d", int(channelID))
+					channelUint := uint(channelID)
 
 					// 获取房间内已有参与者(在加入之前)
 					existing := hub.GetRoomClients(roomID)
@@ -202,7 +194,17 @@ func HandleWebSocket(hub *Hub, c *gin.Context) {
 					}
 					log.Printf("[voice:join] user=%d(%s) channel=%d existing=%d", userID, username, int(channelID), len(existingPayload))
 
+					if redisClient != nil {
+						_ = redisClient.JoinVoiceChannel(channelUint, userID, username)
+					}
+
 					hub.JoinRoom(roomID, client)
+
+					var participants []map[string]interface{}
+					if redisClient != nil {
+						participants, _ = redisClient.GetVoiceChannelParticipants(channelUint)
+					}
+					participantCount := len(participants)
 
 					// 把房间已有参与者列表发给新加入者,让其主动发 offer
 					if err := client.Conn.WriteJSON(&Message{
@@ -232,19 +234,43 @@ func HandleWebSocket(hub *Hub, c *gin.Context) {
 					hub.BroadcastToRoom(textRoomID, &Message{
 						Type: "voice:call-status",
 						Payload: map[string]interface{}{
-							"channelId": int(channelID),
-							"userId":    userID,
-							"username":  username,
-							"avatarUrl": avatarUrl,
-							"action":    "join",
+							"channelId":       int(channelID),
+							"userId":          userID,
+							"username":        username,
+							"avatarUrl":       avatarUrl,
+							"action":          "join",
+							"participantCount": participantCount,
 						},
 					}, "")
+					hub.Broadcast <- &Message{
+						Type: "voice:call-status",
+						Payload: map[string]interface{}{
+							"channelId":       int(channelID),
+							"userId":          userID,
+							"username":        username,
+							"avatarUrl":       avatarUrl,
+							"action":          "join",
+							"participantCount": participantCount,
+						},
+					}
 				}
 
 			case "voice:leave":
 				if channelID, ok := msg["channelId"].(float64); ok {
 					roomID := fmt.Sprintf("voice-channel-%d", int(channelID))
+					channelUint := uint(channelID)
+
+					if redisClient != nil {
+						_ = redisClient.LeaveVoiceChannel(channelUint, userID)
+					}
+
 					hub.LeaveRoom(roomID, client)
+
+					var participants []map[string]interface{}
+					if redisClient != nil {
+						participants, _ = redisClient.GetVoiceChannelParticipants(channelUint)
+					}
+					participantCount := len(participants)
 
 					hub.BroadcastToRoom(roomID, &Message{
 						Type: "voice:user-left",
@@ -259,12 +285,23 @@ func HandleWebSocket(hub *Hub, c *gin.Context) {
 					hub.BroadcastToRoom(textRoomID, &Message{
 						Type: "voice:call-status",
 						Payload: map[string]interface{}{
-							"channelId": int(channelID),
-							"userId":    userID,
-							"username":  username,
-							"action":    "leave",
+							"channelId":       int(channelID),
+							"userId":          userID,
+							"username":        username,
+							"action":          "leave",
+							"participantCount": participantCount,
 						},
 					}, "")
+					hub.Broadcast <- &Message{
+						Type: "voice:call-status",
+						Payload: map[string]interface{}{
+							"channelId":       int(channelID),
+							"userId":          userID,
+							"username":        username,
+							"action":          "leave",
+							"participantCount": participantCount,
+						},
+					}
 				}
 
 			case "voice:signal":

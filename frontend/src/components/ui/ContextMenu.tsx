@@ -12,9 +12,10 @@ interface ContextMenuItem {
 interface ContextMenuProps {
   items: ContextMenuItem[];
   children: React.ReactNode;
+  wrapperClassName?: string;
 }
 
-const ContextMenu: React.FC<ContextMenuProps> = ({ items, children }) => {
+const ContextMenu: React.FC<ContextMenuProps> = ({ items, children, wrapperClassName = 'inline-flex' }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
@@ -61,7 +62,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ items, children }) => {
 
   return (
     <>
-      <div onContextMenu={handleContextMenu} className="inline-flex">
+      <div onContextMenu={handleContextMenu} className={wrapperClassName}>
         {children}
       </div>
 

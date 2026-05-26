@@ -1,7 +1,8 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+/* eslint-disable @next/next/no-img-element */
+import React, { useState, useEffect, useCallback } from 'react';
 import { useChatStore } from '../../store/useChatStore';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { config } from '@/lib/config';
 import ContextMenu from '../ui/ContextMenu';
 import ConfirmModal from '../ui/ConfirmModal';
@@ -10,6 +11,15 @@ interface ServerListProps {
   isLoading?: boolean;
 }
 
+type Group = {
+  id: number;
+  name: string;
+  icon?: string;
+  ownerId?: number;
+  inviteCode?: string;
+  inviteLink?: string;
+};
+
 const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
   const currentUser = useChatStore((state) => state.currentUser);
   const currentGroupId = useChatStore((state) => state.currentGroupId);
@@ -17,8 +27,9 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
   const setCurrentChannel = useChatStore((state) => state.setCurrentChannel);
   const logout = useChatStore((state) => state.logout);
   const router = useRouter();
+  const pathname = usePathname();
 
-  const [groups, setGroups] = useState<any[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
   const [newGroupName, setNewGroupName] = useState('');
@@ -26,11 +37,7 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
   const [joinError, setJoinError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: number; name: string } | null>(null);
 
-  useEffect(() => {
-    fetchGroups();
-  }, []);
-
-  const fetchGroups = async () => {
+  const fetchGroups = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`${config.api.baseUrl}/api/groups`, {
@@ -43,7 +50,19 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
     } catch (error) {
       console.error('Failed to fetch groups:', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void fetchGroups();
+    });
+  }, [fetchGroups]);
+
+  useEffect(() => {
+    const refresh = () => void fetchGroups();
+    window.addEventListener('groups:refresh', refresh);
+    return () => window.removeEventListener('groups:refresh', refresh);
+  }, [fetchGroups]);
 
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) return;
@@ -60,7 +79,7 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
       if (response.ok) {
         setNewGroupName('');
         setIsAddModalOpen(false);
-        fetchGroups();
+        void fetchGroups();
       }
     } catch (error) {
       console.error('Failed to create group:', error);
@@ -80,7 +99,7 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
           setCurrentGroupId(null);
           setCurrentChannel(null);
         }
-        fetchGroups();
+        void fetchGroups();
       }
     } catch (error) {
       console.error('Failed to delete group:', error);
@@ -100,17 +119,17 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
       if (response.ok) {
         setJoinInviteCode('');
         setIsAddModalOpen(false);
-        fetchGroups();
+        void fetchGroups();
       } else {
         const data = await response.json().catch(() => ({}));
         setJoinError(data.message || 'Invalid invite code');
       }
-    } catch (error) {
+    } catch {
       setJoinError('Failed to join server');
     }
   };
 
-  const handleGroupClick = (group: any) => {
+  const handleGroupClick = (group: Group) => {
     if (currentGroupId === group.id) return;
     setCurrentGroupId(group.id);
     setCurrentChannel(null);
@@ -143,6 +162,13 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
     return name?.charAt(0)?.toUpperCase() || 'G';
   };
 
+  const getGroupIconUrl = (icon?: string) => {
+    if (!icon) return '';
+    if (icon.startsWith('http')) return icon;
+    if (icon.startsWith('/uploads/')) return `${config.api.baseUrl}${icon}`;
+    return '';
+  };
+
   if (isLoading) {
     return (
       <div className="flex flex-col gap-2 items-center py-2">
@@ -154,104 +180,130 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
   }
 
   return (
-    <div className="flex flex-col gap-2 items-center py-2 h-full">
-      {/* Home/DM Button */}
-      <button
-        onClick={() => {
-          setCurrentGroupId(null);
-          setCurrentChannel(null);
-          if (currentUser?.id) router.push(`/${currentUser.id}`);
-        }}
-        className={cn(
-          "w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold transition-all",
-          "bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:rounded-xl"
-        )}
-        title="Home"
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-        </svg>
-      </button>
-
-      {/* Separator */}
-      <div className="w-8 h-0.5 bg-zinc-700/50 rounded-full my-1" />
-
-      {/* Server/Group Icons with Right-click Context Menu */}
-      {groups.map((group) => (
-        <ContextMenu
-          key={group.id}
-          items={[
-            {
-              label: 'Delete Server',
-              icon: (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.846L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              ),
-              onClick: () => setDeleteConfirm({ id: group.id, name: group.name }),
-              danger: true,
-              disabled: group.ownerId !== currentUser?.id
-            }
-          ]}
+    <div className="flex h-full min-h-0 flex-col items-center py-2">
+      <div className="flex flex-col items-center gap-2">
+        <button
+          onClick={() => {
+            setCurrentGroupId(null);
+            setCurrentChannel(null);
+            if (currentUser?.id) router.push(`/${currentUser.id}/dm`);
+          }}
+          className={cn(
+            "flex h-12 w-12 items-center justify-center text-lg font-bold transition-all duration-200 hover:scale-105",
+            pathname.endsWith('/dm')
+              ? "rounded-xl bg-indigo-500 text-white"
+              : "rounded-full bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:rounded-xl"
+          )}
+          title="Direct Messages"
         >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h8M8 14h5m8-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </button>
+
+        {currentUser?.role === 'admin' && (
           <button
-            onClick={() => handleGroupClick(group)}
+            onClick={() => router.push('/admin')}
             className={cn(
-              "w-12 h-12 flex items-center justify-center text-lg font-bold transition-all",
-              currentGroupId === group.id
-                ? "rounded-xl bg-indigo-500 text-white shadow-lg"
-                : "rounded-full bg-zinc-700/50 text-zinc-300 hover:bg-zinc-600/50 hover:rounded-xl"
+              "flex h-12 w-12 items-center justify-center text-lg font-bold transition-all duration-200 hover:scale-105",
+              pathname === '/admin'
+                ? "rounded-xl bg-amber-500 text-white"
+                : "rounded-full bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 hover:rounded-xl"
             )}
-            title={group.name}
+            title="Admin"
           >
-            {group.icon ? (
-              <span className="text-2xl">{group.icon}</span>
-            ) : (
-              getInitial(group.name)
-            )}
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3l7 4v5c0 4.5-2.9 8.4-7 9-4.1-.6-7-4.5-7-9V7l7-4z" />
+            </svg>
           </button>
-        </ContextMenu>
-      ))}
-
-      {/* Add Server Button */}
-      <button
-        onClick={() => { setIsAddModalOpen(true); setActiveTab('create'); setJoinError(''); }}
-        className="w-12 h-12 rounded-full bg-zinc-700/50 text-zinc-400 hover:bg-green-500/20 hover:text-green-400 hover:rounded-xl flex items-center justify-center transition-all"
-        title="Add a Server"
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-        </svg>
-      </button>
-
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* User Avatar */}
-      <button
-        onClick={() => router.push('/profile')}
-        className="w-12 h-12 rounded-full bg-zinc-700/50 hover:rounded-xl flex items-center justify-center overflow-hidden transition-all"
-        title={currentUser?.username}
-      >
-        {currentUser?.avatarUrl ? (
-          <img src={`${config.api.baseUrl}${currentUser.avatarUrl}`} alt="Avatar" className="w-full h-full object-cover" />
-        ) : (
-          <span className="text-lg font-bold text-zinc-300">
-            {currentUser?.username?.charAt(0)?.toUpperCase() || 'U'}
-          </span>
         )}
-      </button>
 
-      {/* Logout Button */}
-      <button
-        onClick={handleLogout}
-        className="w-12 h-12 rounded-full bg-zinc-700/50 hover:bg-red-500/20 hover:text-red-400 hover:rounded-xl flex items-center justify-center text-zinc-400 transition-all"
-        title="Logout"
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-        </svg>
-      </button>
+        <div className="w-8 h-0.5 rounded-full bg-zinc-700/50" />
+
+        <button
+          onClick={() => { setIsAddModalOpen(true); setActiveTab('create'); setJoinError(''); }}
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-700/50 text-zinc-400 transition-all duration-200 hover:scale-105 hover:rounded-xl hover:bg-green-500/20 hover:text-green-400"
+          title="Add a Server"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="no-scrollbar mt-2 flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden">
+        <div className="flex flex-col items-center gap-2 py-1">
+          {groups.map((group) => {
+            const iconUrl = getGroupIconUrl(group.icon);
+            const hasImage = !!iconUrl;
+            return (
+              <ContextMenu
+                key={group.id}
+                items={[
+                  {
+                    label: 'Delete Server',
+                    icon: (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.846L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    ),
+                    onClick: () => setDeleteConfirm({ id: group.id, name: group.name }),
+                    danger: true,
+                    disabled: group.ownerId !== currentUser?.id
+                  }
+                ]}
+              >
+                <button
+                  onClick={() => handleGroupClick(group)}
+                  className={cn(
+                    "group flex h-12 w-12 items-center justify-center overflow-hidden text-lg font-bold transition-all duration-200 hover:scale-105",
+                    currentGroupId === group.id
+                      ? "rounded-xl bg-indigo-500 text-white shadow-lg"
+                      : hasImage
+                        ? "rounded-[14px] bg-zinc-700/50 text-zinc-300 hover:bg-zinc-600/50"
+                        : "rounded-full bg-zinc-700/50 text-zinc-300 hover:bg-zinc-600/50 hover:rounded-xl"
+                  )}
+                  title={group.name}
+                >
+                  {iconUrl ? (
+                    <img src={iconUrl} alt={group.name} className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105" />
+                  ) : group.icon ? (
+                    <span className="text-2xl">{group.icon}</span>
+                  ) : (
+                    getInitial(group.name)
+                  )}
+                </button>
+              </ContextMenu>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-2 flex flex-col items-center gap-2">
+        <button
+          onClick={() => router.push('/profile')}
+          className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-zinc-700/50 transition-all duration-200 hover:scale-105 hover:rounded-xl"
+          title={currentUser?.username}
+        >
+          {currentUser?.avatarUrl ? (
+            <img src={`${config.api.baseUrl}${currentUser.avatarUrl}`} alt="Avatar" className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-lg font-bold text-zinc-300">
+              {currentUser?.username?.charAt(0)?.toUpperCase() || 'U'}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={handleLogout}
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-700/50 text-zinc-400 transition-all duration-200 hover:scale-105 hover:rounded-xl hover:bg-red-500/20 hover:text-red-400"
+          title="Logout"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          </svg>
+        </button>
+      </div>
 
       {/* Add Server Modal */}
       {isAddModalOpen && (

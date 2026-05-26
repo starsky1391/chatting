@@ -73,34 +73,43 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    container_name: chatting-rabbitmq
+  kafka:
+    image: redpandadata/redpanda:v24.2.8
+    container_name: chatting-kafka
     restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-admin}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-rabbitmq123}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-      - ./docker/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
-      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 256M
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - PLAINTEXT://kafka:9092,OUTSIDE://localhost:19092
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+      - "19092:19092"
+      - "9644:9644"
     networks:
       - chatting-network
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 30s
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
       timeout: 10s
-      retries: 5
-      start_period: 60s
+      retries: 12
+      start_period: 30s
     deploy:
       resources:
         limits:
           cpus: '1'
-          memory: 512M
+          memory: 384M
         reservations:
           cpus: '0.25'
           memory: 128M
@@ -129,16 +138,19 @@ services:
       # JWT
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
       JWT_EXPIRES_IN: "86400"
+      # Bootstrap admin
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123456}
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       REDIS_DB: "0"
-      # RabbitMQ
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: "5672"
-      RABBITMQ_USER: ${RABBITMQ_USER:-admin}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-rabbitmq123}
+      # Kafka
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC_EVENTS: chat.events
+      KAFKA_CONSUMER_GROUP: ""
     volumes:
       - backend_uploads:/app/uploads
     ports:
@@ -150,7 +162,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      rabbitmq:
+      kafka:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
@@ -218,7 +230,7 @@ services:
       - frontend
       - backend
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -275,8 +287,6 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
-    driver: local
-  rabbitmq_data:
     driver: local
   backend_uploads:
     driver: local
