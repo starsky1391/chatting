@@ -2,6 +2,7 @@ package repository
 
 import (
 	"chat-backend/internal/model"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -84,13 +85,17 @@ func (r *ChannelGroupRepository) InviteCodeExists(inviteCode string) bool {
 
 func (r *ChannelGroupRepository) FindByID(id uint) (*model.ChannelGroup, error) {
 	var group model.ChannelGroup
-	err := r.db.Preload("Channels").Preload("Owner").First(&group, id).Error
+	err := r.db.Preload("Channels", func(db *gorm.DB) *gorm.DB {
+		return db.Order("position asc, id asc")
+	}).Preload("Owner").First(&group, id).Error
 	return &group, err
 }
 
 func (r *ChannelGroupRepository) FindAll() ([]model.ChannelGroup, error) {
 	var groups []model.ChannelGroup
-	err := r.db.Preload("Channels").Preload("Owner").Find(&groups).Error
+	err := r.db.Preload("Channels", func(db *gorm.DB) *gorm.DB {
+		return db.Order("position asc, id asc")
+	}).Preload("Owner").Find(&groups).Error
 	return groups, err
 }
 
@@ -98,7 +103,9 @@ func (r *ChannelGroupRepository) FindByUserID(userID uint) ([]model.ChannelGroup
 	var groups []model.ChannelGroup
 	err := r.db.Joins("JOIN user_groups ON user_groups.group_id = channel_groups.id").
 		Where("user_groups.user_id = ?", userID).
-		Preload("Channels").
+		Preload("Channels", func(db *gorm.DB) *gorm.DB {
+			return db.Order("position asc, id asc")
+		}).
 		Find(&groups).Error
 	return groups, err
 }
@@ -200,22 +207,41 @@ func (r *MessageRepository) Create(message *model.Message) error {
 	return r.db.Create(message).Error
 }
 
-func (r *MessageRepository) FindByChannelID(channelID uint, limit, offset int, day, startAt, endAt *time.Time) ([]model.Message, error) {
+func (r *MessageRepository) FindByChannelID(channelID uint, limit, offset int, day, startAt, endAt *time.Time, queryText string, senderID *uint) ([]model.Message, error) {
 	var messages []model.Message
-	query := r.db.Preload("Sender").
-		Where("channel_id = ?", channelID).
-		Order("created_at desc")
+	query := r.db.Model(&model.Message{}).
+		Select("messages.*").
+		Preload("Sender").
+		Joins("LEFT JOIN users ON users.id = messages.sender_id").
+		Where("messages.channel_id = ?", channelID).
+		Order("messages.created_at desc")
 
 	if startAt != nil && endAt != nil {
-		query = query.Where("created_at >= ? AND created_at < ?", *startAt, *endAt)
+		query = query.Where("messages.created_at >= ? AND messages.created_at < ?", *startAt, *endAt)
 	} else if day != nil {
 		start := day.Truncate(24 * time.Hour)
 		end := start.Add(24 * time.Hour)
-		query = query.Where("created_at >= ? AND created_at < ?", start, end)
+		query = query.Where("messages.created_at >= ? AND messages.created_at < ?", start, end)
+	}
+	if senderID != nil && *senderID > 0 {
+		query = query.Where("messages.sender_id = ?", *senderID)
+	}
+	if trimmedQuery := strings.TrimSpace(queryText); trimmedQuery != "" {
+		pattern := "%" + escapeLikePattern(trimmedQuery) + "%"
+		query = query.Where(
+			"(messages.content ILIKE ? ESCAPE '\\' OR users.username ILIKE ? ESCAPE '\\')",
+			pattern,
+			pattern,
+		)
 	}
 
 	err := query.Limit(limit).Offset(offset).Find(&messages).Error
 	return messages, err
+}
+
+func escapeLikePattern(value string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return replacer.Replace(value)
 }
 
 func (r *MessageRepository) FindByID(id uint) (*model.Message, error) {
@@ -292,6 +318,20 @@ func (r *UserGroupRepository) FindByUserAndGroup(userID, groupID uint) (*model.U
 	return &userGroup, err
 }
 
+func (r *UserGroupRepository) FindRolesByGroupID(groupID uint) (map[uint]string, error) {
+	var userGroups []model.UserGroup
+	err := r.db.Select("user_id", "role").Where("group_id = ?", groupID).Find(&userGroups).Error
+	if err != nil {
+		return nil, err
+	}
+
+	roles := make(map[uint]string, len(userGroups))
+	for _, userGroup := range userGroups {
+		roles[userGroup.UserID] = userGroup.Role
+	}
+	return roles, nil
+}
+
 func (r *UserGroupRepository) Delete(userID, groupID uint) error {
 	return r.db.Where("user_id = ? AND group_id = ?", userID, groupID).Delete(&model.UserGroup{}).Error
 }
@@ -332,6 +372,28 @@ func (r *UserGroupRepository) UpdateRole(userID, groupID uint, role string) erro
 
 func (r *UserGroupRepository) DB() *gorm.DB {
 	return r.db
+}
+
+type GroupAIConfigRepository struct {
+	db *gorm.DB
+}
+
+func NewGroupAIConfigRepository(db *gorm.DB) *GroupAIConfigRepository {
+	return &GroupAIConfigRepository{db: db}
+}
+
+func (r *GroupAIConfigRepository) FindByGroupID(groupID uint) (*model.GroupAIConfig, error) {
+	var config model.GroupAIConfig
+	err := r.db.Where("group_id = ?", groupID).First(&config).Error
+	return &config, err
+}
+
+func (r *GroupAIConfigRepository) Save(config *model.GroupAIConfig) error {
+	return r.db.Save(config).Error
+}
+
+func (r *GroupAIConfigRepository) DeleteByGroupID(groupID uint) error {
+	return r.db.Where("group_id = ?", groupID).Delete(&model.GroupAIConfig{}).Error
 }
 
 type WechatBindingRepository struct {

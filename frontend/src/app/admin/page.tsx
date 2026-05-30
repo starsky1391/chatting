@@ -3,8 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BarChart3, ChevronDown, ChevronRight, LogOut, MessageSquare, RefreshCw, Search, Server, Shield, Trash2, UserCog, Users } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { config } from '@/lib/config';
-import { useChatStore } from '@/store/useChatStore';
+import { api } from '@/lib/api';
+import { getStoredToken, getStoredUser, useChatStore } from '@/store/useChatStore';
 
 type Role = 'admin' | 'moderator' | 'member';
 
@@ -13,13 +13,6 @@ type StoredUser = {
   username: string;
   email: string;
   role: Role;
-};
-
-type ApiEnvelope<T> = {
-  success: boolean;
-  data: T;
-  error?: string;
-  message?: string;
 };
 
 type Summary = {
@@ -107,31 +100,7 @@ const TAB_META: Record<Tab, TabMeta> = {
 };
 
 async function adminRequest<T>(endpoint: string, init: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem('token');
-  const response = await fetch(`${config.api.baseUrl}${endpoint}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init.headers || {}),
-    },
-  });
-
-  const payload = (await response.json().catch(() => ({}))) as Partial<ApiEnvelope<T>>;
-  if (!response.ok) {
-    throw new Error(payload.error || payload.message || 'Request failed');
-  }
-  return payload.data as T;
-}
-
-function readStoredUser(): StoredUser | null {
-  const raw = localStorage.getItem('user');
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as StoredUser;
-  } catch {
-    return null;
-  }
+  return api.request<T>(endpoint, init);
 }
 
 function formatDate(value?: string | null) {
@@ -153,7 +122,7 @@ function includesQuery(values: Array<string | number | boolean | null | undefine
 export default function AdminPage() {
   const router = useRouter();
   const logout = useChatStore((state) => state.logout);
-  const [adminUser] = useState<StoredUser | null>(() => (typeof window === 'undefined' ? null : readStoredUser()));
+  const [adminUser] = useState<StoredUser | null>(() => (typeof window === 'undefined' ? null : getStoredUser()));
   const [activeTab, setActiveTab] = useState<Tab>('users');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -188,9 +157,8 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const user = readStoredUser();
-    if (!token) {
+    const user = getStoredUser();
+    if (!getStoredToken()) {
       router.replace('/login?redirect=/admin');
       return;
     }

@@ -5,10 +5,11 @@ import React, { FormEvent, useCallback, useEffect, useMemo, useRef, useState } f
 import { Check, MessageCircle, Search, Send, UserPlus, Users, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import MessageBubble from '@/components/messages/MessageBubble';
+import { api } from '@/lib/api';
 import { config } from '@/lib/config';
 import { cleanupWebSocket, connectWebSocket, onWebSocketMessage } from '@/lib/socket';
 import { cn } from '@/lib/utils';
-import { useChatStore } from '@/store/useChatStore';
+import { getStoredToken, useChatStore } from '@/store/useChatStore';
 
 type UserResponse = {
   id: number;
@@ -59,13 +60,6 @@ type DirectMessage = {
   createdAt: string;
 };
 
-type ApiEnvelope<T> = {
-  success: boolean;
-  data: T;
-  error?: string;
-  message?: string;
-};
-
 type DirectMessageSocketPayload = {
   message?: DirectMessage;
 };
@@ -74,23 +68,6 @@ type DirectMessageDeleteSocketPayload = {
   conversationId?: number;
   messageId?: number;
 };
-
-async function request<T>(endpoint: string, init: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem('token');
-  const response = await fetch(`${config.api.baseUrl}${endpoint}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init.headers || {}),
-    },
-  });
-  const payload = (await response.json().catch(() => ({}))) as Partial<ApiEnvelope<T>>;
-  if (!response.ok) {
-    throw new Error(payload.error || payload.message || 'Request failed');
-  }
-  return payload.data as T;
-}
 
 function avatarUrl(user: UserResponse) {
   if (!user.avatarUrl) return '';
@@ -123,26 +100,26 @@ export default function DirectMessageWorkspace() {
   const selectedConversationIDRef = useRef<number | null>(null);
 
   const loadFriends = useCallback(async () => {
-    const data = await request<Friendship[]>('/api/friends');
+    const data = await api.get<Friendship[]>('/api/friends');
     setFriends(Array.isArray(data) ? data : []);
   }, []);
 
   const loadRequests = useCallback(async () => {
     const [incoming, outgoing] = await Promise.all([
-      request<FriendRequest[]>('/api/friends/requests/incoming'),
-      request<FriendRequest[]>('/api/friends/requests/outgoing'),
+      api.get<FriendRequest[]>('/api/friends/requests/incoming'),
+      api.get<FriendRequest[]>('/api/friends/requests/outgoing'),
     ]);
     setIncomingRequests(Array.isArray(incoming) ? incoming : []);
     setOutgoingRequests(Array.isArray(outgoing) ? outgoing : []);
   }, []);
 
   const loadConversations = useCallback(async () => {
-    const data = await request<DirectConversation[]>('/api/dm/conversations');
+    const data = await api.get<DirectConversation[]>('/api/dm/conversations');
     setConversations(Array.isArray(data) ? data : []);
   }, []);
 
   const loadMessages = useCallback(async (conversationID: number) => {
-    const data = await request<DirectMessage[]>(`/api/dm/conversations/${conversationID}/messages`);
+    const data = await api.get<DirectMessage[]>(`/api/dm/conversations/${conversationID}/messages`);
     setMessages(Array.isArray(data) ? data.slice().reverse() : []);
   }, []);
 
@@ -161,8 +138,7 @@ export default function DirectMessageWorkspace() {
   }, [selectedConversation?.id]);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+    if (!getStoredToken()) return;
 
     connectWebSocket().catch((err: unknown) => {
       setError(err instanceof Error ? err.message : 'WebSocket connection failed');
@@ -232,7 +208,7 @@ export default function DirectMessageWorkspace() {
       return;
     }
     try {
-      const data = await request<UserResponse[]>(`/api/friends/search?q=${encodeURIComponent(searchQuery.trim())}`);
+      const data = await api.get<UserResponse[]>(`/api/friends/search?q=${encodeURIComponent(searchQuery.trim())}`);
       setSearchResults(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed');
@@ -242,10 +218,7 @@ export default function DirectMessageWorkspace() {
   const sendFriendRequest = async (user: UserResponse, options: { updateSearch?: boolean } = { updateSearch: true }) => {
     setError('');
     try {
-      await request<FriendRequest>('/api/friends/requests', {
-        method: 'POST',
-        body: JSON.stringify({ addresseeId: user.id }),
-      });
+      await api.post<FriendRequest>('/api/friends/requests', { addresseeId: user.id });
       if (options.updateSearch !== false) {
         setSearchResults((items) => items.filter((item) => item.id !== user.id));
       }
@@ -258,7 +231,7 @@ export default function DirectMessageWorkspace() {
   const updateRequest = async (requestID: number, action: 'accept' | 'reject') => {
     setError('');
     try {
-      await request<FriendRequest>(`/api/friends/requests/${requestID}/${action}`, { method: 'POST' });
+      await api.post<FriendRequest>(`/api/friends/requests/${requestID}/${action}`, {});
       await Promise.all([loadFriends(), loadRequests()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update request');
@@ -268,10 +241,7 @@ export default function DirectMessageWorkspace() {
   const openConversationWithFriend = async (friend: UserResponse) => {
     setError('');
     try {
-      const conversation = await request<DirectConversation>('/api/dm/conversations', {
-        method: 'POST',
-        body: JSON.stringify({ userId: friend.id }),
-      });
+      const conversation = await api.post<DirectConversation>('/api/dm/conversations', { userId: friend.id });
       setSelectedConversation(conversation);
       setActiveTab('messages');
       await Promise.all([loadConversations(), loadMessages(conversation.id)]);
@@ -306,10 +276,7 @@ export default function DirectMessageWorkspace() {
     const content = messageInput.trim();
     setMessageInput('');
     try {
-      const message = await request<DirectMessage>(`/api/dm/conversations/${selectedConversation.id}/messages`, {
-        method: 'POST',
-        body: JSON.stringify({ content }),
-      });
+      const message = await api.post<DirectMessage>(`/api/dm/conversations/${selectedConversation.id}/messages`, { content });
       setMessages((items) => {
         if (items.some((item) => item.id === message.id)) return items;
         return [...items, message];
@@ -324,9 +291,7 @@ export default function DirectMessageWorkspace() {
   const recallMessage = async (messageID: number) => {
     if (!selectedConversation) return;
 
-    await request<null>(`/api/dm/conversations/${selectedConversation.id}/messages/${messageID}`, {
-      method: 'DELETE',
-    });
+    await api.delete<null>(`/api/dm/conversations/${selectedConversation.id}/messages/${messageID}`);
     setMessages((items) => items.filter((item) => item.id !== messageID));
     await loadConversations();
   };

@@ -2,7 +2,8 @@
 /* eslint-disable @next/next/no-img-element */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ImageIcon, Loader2, Plus, Save, Shield, Trash2, Upload, Users, X } from 'lucide-react';
+import { Bot, ImageIcon, Loader2, Plus, Save, Shield, Trash2, Upload, Users, X } from 'lucide-react';
+import { api, ApiError } from '@/lib/api';
 import { config } from '@/lib/config';
 import { getMemberRoleName, roleLabel, sortMembersByRole } from '@/lib/roles';
 
@@ -35,6 +36,15 @@ interface GroupMember {
   groupRole?: string;
 }
 
+interface GroupAIConfig {
+  groupId: number;
+  apiUrl: string;
+  apiKey: string;
+  model: string;
+  botName: string;
+  updatedAt?: string;
+}
+
 interface GroupSettingsModalProps {
   isOpen: boolean;
   group: ChannelGroup | null;
@@ -43,7 +53,7 @@ interface GroupSettingsModalProps {
   onSaved?: () => void;
 }
 
-type TabKey = 'basic' | 'roles' | 'members';
+type TabKey = 'basic' | 'roles' | 'members' | 'ai';
 
 const emptyRoleForm = {
   name: '',
@@ -79,6 +89,10 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
   const [groupForm, setGroupForm] = useState({ name: '', description: '', icon: '' });
   const [roles, setRoles] = useState<GroupRole[]>([]);
   const [members, setMembers] = useState<GroupMember[]>([]);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiConfigSaving, setAiConfigSaving] = useState(false);
+  const [aiConfigForm, setAiConfigForm] = useState({ botName: 'AI', apiUrl: '', apiKey: '', model: '' });
+  const [aiConfigUpdatedAt, setAiConfigUpdatedAt] = useState('');
   const [roleForm, setRoleForm] = useState(emptyRoleForm);
   const [editingRoleId, setEditingRoleId] = useState<number | null>(null);
   const wasOpenRef = useRef(false);
@@ -88,8 +102,12 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
   const sortedRoles = useMemo(() => [...roles].sort((a, b) => a.position - b.position || a.id - b.id), [roles]);
   const sortedMembers = useMemo(() => sortMembersByRole(members, sortedRoles), [members, sortedRoles]);
   const assignableRoles = useMemo(
-    () => sortedRoles.filter((role) => role.name !== 'owner'),
+    () => sortedRoles.filter((role) => role.name !== 'owner' && role.name !== 'bot'),
     [sortedRoles]
+  );
+  const isAIBotEnabled = useMemo(
+    () => members.some((member) => member.groupRole === 'bot' || member.role === 'bot' || member.username === 'AI'),
+    [members]
   );
 
   const fetchData = useCallback(async () => {
@@ -97,31 +115,42 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
     setLoading(true);
     setError('');
     try {
-      const token = localStorage.getItem('token');
-      const [rolesResponse, membersResponse] = await Promise.all([
-        fetch(`${config.api.baseUrl}/api/groups/${group.id}/roles`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${config.api.baseUrl}/api/groups/${group.id}/members`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+      const [roleItems, memberItems] = await Promise.all([
+        api.get<GroupRole[]>(`/api/groups/${group.id}/roles`),
+        api.get<GroupMember[]>(`/api/groups/${group.id}/members`),
       ]);
 
-      if (rolesResponse.ok) {
-        const payload = await rolesResponse.json();
-        setRoles(Array.isArray(payload.data) ? payload.data : []);
-      }
+      setRoles(Array.isArray(roleItems) ? roleItems : []);
+      setMembers(Array.isArray(memberItems) ? memberItems : []);
 
-      if (membersResponse.ok) {
-        const payload = await membersResponse.json();
-        setMembers(Array.isArray(payload.data) ? payload.data : []);
+      if (group.ownerId === currentUserId) {
+        try {
+          const aiConfig = await api.get<GroupAIConfig>(`/api/groups/${group.id}/ai-config`);
+          setAiConfigForm({
+            botName: aiConfig?.botName || 'AI',
+            apiUrl: aiConfig?.apiUrl || '',
+            apiKey: aiConfig?.apiKey || '',
+            model: aiConfig?.model || '',
+          });
+          setAiConfigUpdatedAt(aiConfig?.updatedAt || '');
+        } catch (aiConfigError) {
+          if (!(aiConfigError instanceof ApiError) || aiConfigError.status !== 404) {
+            throw aiConfigError;
+          }
+          setAiConfigForm({ botName: 'AI', apiUrl: '', apiKey: '', model: '' });
+          setAiConfigUpdatedAt('');
+        }
+      } else {
+        setAiConfigForm({ botName: 'AI', apiUrl: '', apiKey: '', model: '' });
+        setAiConfigUpdatedAt('');
+        if (activeTab === 'ai') setActiveTab('basic');
       }
     } catch (fetchError) {
       setError(getErrorMessage(fetchError, '加载群组设置失败'));
     } finally {
       setLoading(false);
     }
-  }, [group]);
+  }, [activeTab, currentUserId, group]);
 
   useEffect(() => {
     if (!isOpen || !group) {
@@ -157,24 +186,11 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
     setSaving(true);
     setError('');
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups/${group.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: groupForm.name.trim(),
-          description: groupForm.description.trim(),
-          icon: groupForm.icon,
-        }),
+      await api.put<ChannelGroup>(`/api/groups/${group.id}`, {
+        name: groupForm.name.trim(),
+        description: groupForm.description.trim(),
+        icon: groupForm.icon,
       });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.message || payload.error || '保存群组信息失败');
-      }
 
       onSaved?.();
       window.dispatchEvent(new Event('groups:refresh'));
@@ -195,16 +211,8 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
       const formData = new FormData();
       formData.append('image', file);
 
-      const response = await fetch(`${config.api.baseUrl}/api/upload`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-        body: formData,
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.message || payload.error || '上传图片失败');
-      }
-      setGroupForm((prev) => ({ ...prev, icon: payload.data?.url || '' }));
+      const payload = await api.upload<{ url?: string }>('/api/upload', formData);
+      setGroupForm((prev) => ({ ...prev, icon: payload?.url || '' }));
     } catch (uploadError) {
       setError(getErrorMessage(uploadError, '上传图片失败'));
     } finally {
@@ -224,28 +232,20 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
     setSaving(true);
     setError('');
     try {
-      const token = localStorage.getItem('token');
-      const url = editingRoleId
-        ? `${config.api.baseUrl}/api/groups/${group.id}/roles/${editingRoleId}`
-        : `${config.api.baseUrl}/api/groups/${group.id}/roles`;
-      const response = await fetch(url, {
-        method: editingRoleId ? 'PUT' : 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: roleForm.name.trim(),
-          description: roleForm.description.trim(),
-          color: roleForm.color,
-          position: Number(roleForm.position) || 0,
-          isDefault: roleForm.isDefault,
-        }),
-      });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.message || payload.error || '保存身份组失败');
+      const endpoint = editingRoleId
+        ? `/api/groups/${group.id}/roles/${editingRoleId}`
+        : `/api/groups/${group.id}/roles`;
+      const body = {
+        name: roleForm.name.trim(),
+        description: roleForm.description.trim(),
+        color: roleForm.color,
+        position: Number(roleForm.position) || 0,
+        isDefault: roleForm.isDefault,
+      };
+      if (editingRoleId) {
+        await api.put<GroupRole>(endpoint, body);
+      } else {
+        await api.post<GroupRole>(endpoint, body);
       }
 
       resetRoleForm();
@@ -276,15 +276,7 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
     setSaving(true);
     setError('');
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups/${group.id}/roles/${role.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.message || payload.error || '删除身份组失败');
-      }
+      await api.delete<null>(`/api/groups/${group.id}/roles/${role.id}`);
       await fetchData();
       onSaved?.();
     } catch (deleteError) {
@@ -299,23 +291,78 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
 
     setError('');
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups/${group.id}/members/${memberId}/role`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ roleId }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.message || payload.error || '更新成员身份失败');
-      }
+      await api.put<null>(`/api/groups/${group.id}/members/${memberId}/role`, { roleId });
       await fetchData();
       onSaved?.();
     } catch (assignError) {
       setError(getErrorMessage(assignError, '更新成员身份失败'));
+    }
+  };
+
+  const toggleAIBot = async () => {
+    if (!group || !isOwner) return;
+
+    setAiSaving(true);
+    setError('');
+    try {
+      if (isAIBotEnabled) {
+        await api.delete<null>(`/api/groups/${group.id}/ai-bot`);
+      } else {
+        await api.post<null>(`/api/groups/${group.id}/ai-bot`, {});
+      }
+      await fetchData();
+      onSaved?.();
+    } catch (toggleError) {
+      setError(getErrorMessage(toggleError, '更新 AI 机器人失败'));
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const saveAIConfig = async () => {
+    if (!group || !isOwner || !aiConfigForm.apiUrl.trim()) {
+      setError('AI 接口链接不能为空');
+      return;
+    }
+
+    setAiConfigSaving(true);
+    setError('');
+    try {
+      const savedConfig = await api.put<GroupAIConfig>(`/api/groups/${group.id}/ai-config`, {
+        apiUrl: aiConfigForm.apiUrl.trim(),
+        apiKey: aiConfigForm.apiKey.trim(),
+        model: aiConfigForm.model.trim(),
+        botName: aiConfigForm.botName.trim(),
+      });
+      if (savedConfig) {
+        setAiConfigForm({
+          botName: savedConfig.botName || 'AI',
+          apiUrl: savedConfig.apiUrl || '',
+          apiKey: savedConfig.apiKey || '',
+          model: savedConfig.model || '',
+        });
+      }
+      setAiConfigUpdatedAt(savedConfig?.updatedAt || '');
+    } catch (saveError) {
+      setError(getErrorMessage(saveError, '保存 AI 配置失败'));
+    } finally {
+      setAiConfigSaving(false);
+    }
+  };
+
+  const deleteAIConfig = async () => {
+    if (!group || !isOwner || !window.confirm('确定删除该群的 AI 接口配置吗？')) return;
+
+    setAiConfigSaving(true);
+    setError('');
+    try {
+      await api.delete<null>(`/api/groups/${group.id}/ai-config`);
+      setAiConfigForm({ botName: 'AI', apiUrl: '', apiKey: '', model: '' });
+      setAiConfigUpdatedAt('');
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError, '删除 AI 配置失败'));
+    } finally {
+      setAiConfigSaving(false);
     }
   };
 
@@ -344,6 +391,7 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
               { key: 'basic', label: '基本信息', icon: <ImageIcon className="h-4 w-4" /> },
               { key: 'roles', label: '身份组', icon: <Shield className="h-4 w-4" /> },
               { key: 'members', label: '成员管理', icon: <Users className="h-4 w-4" /> },
+              ...(isOwner ? [{ key: 'ai', label: 'AI 机器人', icon: <Bot className="h-4 w-4" /> }] : []),
             ].map((tab) => (
               <button
                 key={tab.key}
@@ -543,7 +591,7 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
                   ))}
                 </div>
               </div>
-            ) : (
+            ) : activeTab === 'members' ? (
               <div className="overflow-hidden rounded-lg border border-zinc-800">
                 <div className="grid grid-cols-[1.4fr_0.8fr_0.9fr] gap-3 border-b border-zinc-800 bg-zinc-900/70 px-4 py-3 text-xs text-zinc-500">
                   <div>成员</div>
@@ -604,6 +652,119 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
                   {members.length === 0 && (
                     <div className="py-10 text-center text-sm text-zinc-500">暂无成员</div>
                   )}
+                </div>
+              </div>
+            ) : (
+              <div className="max-w-3xl space-y-5">
+                <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-5">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-green-500/15 text-green-300">
+                      <Bot className="h-6 w-6" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h4 className="text-base font-semibold text-white">AI 群助手</h4>
+                          <p className="mt-1 text-sm text-zinc-500">
+                            只有群主可以查看和修改接口配置。添加后成员可以在频道里 @{aiConfigForm.botName.trim() || 'AI'} 提问。
+                          </p>
+                        </div>
+                        <span className={`rounded-full px-2.5 py-1 text-xs ${isAIBotEnabled ? 'bg-green-500/15 text-green-300' : 'bg-zinc-800 text-zinc-400'}`}>
+                          {isAIBotEnabled ? '已添加' : '未添加'}
+                        </span>
+                      </div>
+                      <div className="mt-5 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={toggleAIBot}
+                          disabled={aiSaving}
+                          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+                            isAIBotEnabled ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'
+                          }`}
+                        >
+                          {aiSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                          {isAIBotEnabled ? '移除机器人' : '添加机器人'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-5">
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-base font-semibold text-white">接口配置</h4>
+                      <p className="mt-1 text-sm text-zinc-500">配置该群自己的 AI API 链接、密钥和模型。</p>
+                    </div>
+                    {aiConfigUpdatedAt && (
+                      <span className="text-xs text-zinc-500">
+                        已保存 {new Date(aiConfigUpdatedAt).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-zinc-400">AI 名称</span>
+                      <input
+                        value={aiConfigForm.botName}
+                        onChange={(event) => setAiConfigForm((prev) => ({ ...prev, botName: event.target.value }))}
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                        placeholder="AI"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-zinc-400">API 链接</span>
+                      <input
+                        value={aiConfigForm.apiUrl}
+                        onChange={(event) => setAiConfigForm((prev) => ({ ...prev, apiUrl: event.target.value }))}
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                        placeholder="https://example.com/api/ai"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-zinc-400">API Key</span>
+                      <input
+                        type="password"
+                        value={aiConfigForm.apiKey}
+                        onChange={(event) => setAiConfigForm((prev) => ({ ...prev, apiKey: event.target.value }))}
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                        placeholder="可选"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-zinc-400">模型</span>
+                      <input
+                        value={aiConfigForm.model}
+                        onChange={(event) => setAiConfigForm((prev) => ({ ...prev, model: event.target.value }))}
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                        placeholder="例如 gpt-4o-mini，可选"
+                      />
+                    </label>
+
+                    <div className="flex flex-wrap justify-end gap-2 border-t border-zinc-800 pt-4">
+                      <button
+                        type="button"
+                        onClick={deleteAIConfig}
+                        disabled={aiConfigSaving || !aiConfigUpdatedAt}
+                        className="rounded-lg border border-red-500/30 px-4 py-2 text-sm text-red-300 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        删除配置
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveAIConfig}
+                        disabled={aiConfigSaving || !aiConfigForm.apiUrl.trim()}
+                        className="inline-flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2 text-sm text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {aiConfigSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        保存配置
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

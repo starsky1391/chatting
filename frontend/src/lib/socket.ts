@@ -2,6 +2,7 @@
 // Using native WebSocket (compatible with gorilla/websocket backend)
 
 import { config } from './config';
+import { getStoredToken } from '@/store/useChatStore';
 
 // Global WebSocket instance
 let wsInstance: WebSocket | null = null;
@@ -52,7 +53,7 @@ export const connectWebSocket = (): Promise<WebSocket> => {
     }
 
     isConnecting = true;
-    const token = localStorage.getItem('token');
+    const token = getStoredToken();
     if (!token) {
       isConnecting = false;
       reject(new Error('No token available'));

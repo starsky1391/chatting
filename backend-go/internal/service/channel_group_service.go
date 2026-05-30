@@ -17,23 +17,29 @@ import (
 type ChannelGroupService struct {
 	groupRepo     *repository.ChannelGroupRepository
 	channelRepo   *repository.ChannelRepository
+	userRepo      *repository.UserRepository
 	userGroupRepo *repository.UserGroupRepository
 	groupRoleRepo *repository.GroupRoleRepository
+	aiConfigRepo  *repository.GroupAIConfigRepository
 	redis         *redis.RedisClient
 }
 
 func NewChannelGroupService(
 	groupRepo *repository.ChannelGroupRepository,
 	channelRepo *repository.ChannelRepository,
+	userRepo *repository.UserRepository,
 	userGroupRepo *repository.UserGroupRepository,
 	groupRoleRepo *repository.GroupRoleRepository,
+	aiConfigRepo *repository.GroupAIConfigRepository,
 	redisClient *redis.RedisClient,
 ) *ChannelGroupService {
 	return &ChannelGroupService{
 		groupRepo:     groupRepo,
 		channelRepo:   channelRepo,
+		userRepo:      userRepo,
 		userGroupRepo: userGroupRepo,
 		groupRoleRepo: groupRoleRepo,
+		aiConfigRepo:  aiConfigRepo,
 		redis:         redisClient,
 	}
 }
@@ -86,6 +92,20 @@ type UpdateMemberRoleInput struct {
 	RoleID uint `json:"roleId" binding:"required"`
 }
 
+type UpdateGroupAIConfigInput struct {
+	APIURL  string `json:"apiUrl" binding:"required"`
+	APIKey  string `json:"apiKey"`
+	Model   string `json:"model"`
+	BotName string `json:"botName"`
+}
+
+const (
+	AIBotEmail    = "ai-bot@system.local"
+	AIBotUsername = "AI"
+	AIBotAvatar   = "AI"
+	AIBotRole     = "bot"
+)
+
 func (s *ChannelGroupService) GetAllGroups() ([]model.ChannelGroupResponse, error) {
 	groups, err := s.groupRepo.FindAll()
 	if err != nil {
@@ -94,6 +114,13 @@ func (s *ChannelGroupService) GetAllGroups() ([]model.ChannelGroupResponse, erro
 
 	responses := make([]model.ChannelGroupResponse, len(groups))
 	for i, group := range groups {
+		if err := s.ensureDefaultChannels(group.ID, group.OwnerID); err != nil {
+			return nil, err
+		}
+		refreshed, err := s.groupRepo.FindByID(group.ID)
+		if err == nil {
+			group = *refreshed
+		}
 		response := model.ToChannelGroupResponse(group)
 		if roles, err := s.getGroupRoleResponses(group.ID); err == nil {
 			response.Roles = roles
@@ -107,6 +134,13 @@ func (s *ChannelGroupService) GetGroupByID(id uint) (*model.ChannelGroupResponse
 	group, err := s.groupRepo.FindByID(id)
 	if err != nil {
 		return nil, err
+	}
+
+	if err := s.ensureDefaultChannels(group.ID, group.OwnerID); err != nil {
+		return nil, err
+	}
+	if refreshed, err := s.groupRepo.FindByID(group.ID); err == nil {
+		group = refreshed
 	}
 
 	response := model.ToChannelGroupResponse(*group)
@@ -124,6 +158,13 @@ func (s *ChannelGroupService) GetUserGroups(userID uint) ([]model.ChannelGroupRe
 
 	responses := make([]model.ChannelGroupResponse, len(groups))
 	for i, group := range groups {
+		if err := s.ensureDefaultChannels(group.ID, group.OwnerID); err != nil {
+			return nil, err
+		}
+		refreshed, err := s.groupRepo.FindByID(group.ID)
+		if err == nil {
+			group = *refreshed
+		}
 		response := model.ToChannelGroupResponse(group)
 
 		memberResponses, _ := s.getGroupMemberResponses(group.ID)
@@ -175,27 +216,9 @@ func (s *ChannelGroupService) CreateGroup(input CreateGroupInput, ownerID uint) 
 		return nil, err
 	}
 
-	// Create default channels
-	textChannel := &model.Channel{
-		Name:        "general",
-		Type:        "text",
-		Description: "General discussion",
-		GroupID:     group.ID,
-		Position:    0,
-		CreatedBy:   0, // System created
+	if err := s.ensureDefaultChannels(group.ID, ownerID); err != nil {
+		return nil, err
 	}
-	s.channelRepo.Create(textChannel)
-
-	voiceChannel := &model.Channel{
-		Name:        "General Voice",
-		Type:        "voice",
-		Description: "General voice chat",
-		GroupID:     group.ID,
-		Position:    0,
-		CreatedBy:   0, // System created
-		MaxMembers:  100,
-	}
-	s.channelRepo.Create(voiceChannel)
 
 	return s.GetGroupByID(group.ID)
 }
@@ -228,6 +251,9 @@ func (s *ChannelGroupService) UpdateGroup(groupID, userID uint, input UpdateGrou
 
 func (s *ChannelGroupService) JoinGroup(userID, groupID uint) error {
 	if err := s.ensureDefaultRoles(groupID); err != nil {
+		return err
+	}
+	if err := s.ensureDefaultChannels(groupID, 0); err != nil {
 		return err
 	}
 
@@ -345,6 +371,109 @@ var ErrInvalidInviteCode = errors.New("invalid invite code")
 
 func (s *ChannelGroupService) LeaveGroup(userID, groupID uint) error {
 	return s.userGroupRepo.Delete(userID, groupID)
+}
+
+func (s *ChannelGroupService) AddAIBotToGroup(groupID, userID uint) (*model.UserResponse, error) {
+	if !s.isGroupOwner(userID, groupID) {
+		return nil, ErrNoPermission
+	}
+
+	if err := s.ensureBotRole(groupID); err != nil {
+		return nil, err
+	}
+
+	bot, err := s.ensureAIBotUser()
+	if err != nil {
+		return nil, err
+	}
+
+	if !s.userGroupRepo.Exists(bot.ID, groupID) {
+		if err := s.userGroupRepo.Create(&model.UserGroup{
+			UserID:  bot.ID,
+			GroupID: groupID,
+			Role:    AIBotRole,
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	response := model.ToUserResponse(*bot)
+	response.GroupRole = AIBotRole
+	response.IsOnline = true
+	return &response, nil
+}
+
+func (s *ChannelGroupService) RemoveAIBotFromGroup(groupID, userID uint) error {
+	if !s.isGroupOwner(userID, groupID) {
+		return ErrNoPermission
+	}
+
+	bot, err := s.userRepo.FindByEmail(AIBotEmail)
+	if err != nil {
+		return nil
+	}
+	return s.userGroupRepo.Delete(bot.ID, groupID)
+}
+
+func (s *ChannelGroupService) GetGroupAIConfig(groupID, userID uint) (*model.GroupAIConfigResponse, error) {
+	if !s.isGroupOwner(userID, groupID) {
+		return nil, ErrNoPermission
+	}
+	if s.aiConfigRepo == nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	config, err := s.aiConfigRepo.FindByGroupID(groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	response := model.ToGroupAIConfigResponse(*config)
+	return &response, nil
+}
+
+func (s *ChannelGroupService) SaveGroupAIConfig(groupID, userID uint, input UpdateGroupAIConfigInput) (*model.GroupAIConfigResponse, error) {
+	if !s.isGroupOwner(userID, groupID) {
+		return nil, ErrNoPermission
+	}
+	if s.aiConfigRepo == nil {
+		return nil, errors.New("ai config repository is not configured")
+	}
+
+	apiURL := strings.TrimSpace(input.APIURL)
+	if apiURL == "" {
+		return nil, errors.New("api url is required")
+	}
+
+	config, err := s.aiConfigRepo.FindByGroupID(groupID)
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		config = &model.GroupAIConfig{GroupID: groupID}
+	}
+
+	config.APIURL = apiURL
+	config.APIKey = strings.TrimSpace(input.APIKey)
+	config.AIModel = strings.TrimSpace(input.Model)
+	config.BotName = normalizeAIBotName(input.BotName)
+
+	if err := s.aiConfigRepo.Save(config); err != nil {
+		return nil, err
+	}
+
+	response := model.ToGroupAIConfigResponse(*config)
+	return &response, nil
+}
+
+func (s *ChannelGroupService) DeleteGroupAIConfig(groupID, userID uint) error {
+	if !s.isGroupOwner(userID, groupID) {
+		return ErrNoPermission
+	}
+	if s.aiConfigRepo == nil {
+		return nil
+	}
+	return s.aiConfigRepo.DeleteByGroupID(groupID)
 }
 
 func (s *ChannelGroupService) GetGroupMembers(groupID uint) ([]model.UserResponse, error) {
@@ -550,6 +679,11 @@ func (s *ChannelGroupService) canManageGroup(userID uint, groupID uint) bool {
 	return userRole == "owner" || userRole == "admin" || userRole == "moderator"
 }
 
+func (s *ChannelGroupService) isGroupOwner(userID uint, groupID uint) bool {
+	userRole := s.userGroupRepo.GetUserRole(userID, groupID)
+	return userRole == "owner"
+}
+
 func (s *ChannelGroupService) DeleteGroup(groupID uint) error {
 	return s.groupRepo.DB().Transaction(func(tx *gorm.DB) error {
 		// 1. 硬删除该群组下所有成员关系（不能用软删除，否则外键约束仍生效）
@@ -557,6 +691,9 @@ func (s *ChannelGroupService) DeleteGroup(groupID uint) error {
 			return err
 		}
 		if err := tx.Unscoped().Where("group_id = ?", groupID).Delete(&model.GroupRole{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("group_id = ?", groupID).Delete(&model.GroupAIConfig{}).Error; err != nil {
 			return err
 		}
 		// 2. 删除该群组下所有频道（CASCADE 会自动删除关联的 messages）
@@ -742,6 +879,66 @@ func (s *ChannelGroupService) ensureDefaultRoles(groupID uint) error {
 	return nil
 }
 
+func (s *ChannelGroupService) ensureBotRole(groupID uint) error {
+	if s.groupRoleRepo == nil {
+		return nil
+	}
+	if s.groupRoleRepo.Exists(groupID, AIBotRole) {
+		return nil
+	}
+	return s.groupRoleRepo.Create(&model.GroupRole{
+		GroupID:     groupID,
+		Name:        AIBotRole,
+		Description: "AI assistant bot",
+		Color:       "#22c55e",
+		Position:    50,
+		IsSystem:    true,
+	})
+}
+
+func (s *ChannelGroupService) ensureAIBotUser() (*model.User, error) {
+	bot, err := s.userRepo.FindByEmail(AIBotEmail)
+	if err == nil {
+		updates := false
+		if bot.Username != AIBotUsername {
+			bot.Username = AIBotUsername
+			updates = true
+		}
+		if bot.Avatar == "" {
+			bot.Avatar = AIBotAvatar
+			updates = true
+		}
+		if bot.Role != AIBotRole {
+			bot.Role = AIBotRole
+			updates = true
+		}
+		if !bot.IsOnline {
+			bot.IsOnline = true
+			updates = true
+		}
+		if updates {
+			if err := s.userRepo.Update(bot); err != nil {
+				return nil, err
+			}
+		}
+		return bot, nil
+	}
+
+	bot = &model.User{
+		Username: AIBotUsername,
+		Email:    AIBotEmail,
+		Password: "-",
+		Avatar:   AIBotAvatar,
+		Role:     AIBotRole,
+		IsOnline: true,
+		Bio:      "群组 AI 助手",
+	}
+	if err := s.userRepo.Create(bot); err != nil {
+		return nil, err
+	}
+	return bot, nil
+}
+
 func (s *ChannelGroupService) clearDefaultGroupRole(groupID uint) error {
 	if s.groupRoleRepo == nil {
 		return nil
@@ -761,6 +958,76 @@ func (s *ChannelGroupService) clearDefaultGroupRole(groupID uint) error {
 		}
 	}
 	return nil
+}
+
+func (s *ChannelGroupService) ensureDefaultChannels(groupID uint, createdBy uint) error {
+	if s.channelRepo == nil {
+		return nil
+	}
+	if createdBy == 0 && s.groupRepo != nil {
+		group, err := s.groupRepo.FindByID(groupID)
+		if err != nil {
+			return err
+		}
+		createdBy = group.OwnerID
+	}
+	if createdBy == 0 {
+		return errors.New("default channel creator is required")
+	}
+
+	textChannels, err := s.channelRepo.FindByGroupIDAndType(groupID, "text")
+	if err != nil {
+		return err
+	}
+	if len(textChannels) == 0 {
+		textName := s.availableDefaultChannelName(groupID, "general", "general-text")
+		if err := s.channelRepo.Create(&model.Channel{
+			Name:        textName,
+			Type:        "text",
+			Description: "General discussion",
+			GroupID:     groupID,
+			Position:    0,
+			CreatedBy:   createdBy,
+		}); err != nil {
+			return err
+		}
+	}
+
+	voiceChannels, err := s.channelRepo.FindByGroupIDAndType(groupID, "voice")
+	if err != nil {
+		return err
+	}
+	if len(voiceChannels) == 0 {
+		voiceName := s.availableDefaultChannelName(groupID, "General Voice", "voice-general")
+		if err := s.channelRepo.Create(&model.Channel{
+			Name:        voiceName,
+			Type:        "voice",
+			Description: "General voice chat",
+			GroupID:     groupID,
+			Position:    0,
+			CreatedBy:   createdBy,
+			MaxMembers:  100,
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *ChannelGroupService) availableDefaultChannelName(groupID uint, preferred string, fallback string) string {
+	if !s.channelRepo.NameExists(groupID, preferred, 0) {
+		return preferred
+	}
+	if !s.channelRepo.NameExists(groupID, fallback, 0) {
+		return fallback
+	}
+	for index := 2; ; index++ {
+		name := fallback + "-" + strconv.Itoa(index)
+		if !s.channelRepo.NameExists(groupID, name, 0) {
+			return name
+		}
+	}
 }
 
 func (s *ChannelGroupService) getGroupRoleResponses(groupID uint) ([]model.GroupRoleResponse, error) {
@@ -790,12 +1057,37 @@ func (s *ChannelGroupService) getGroupMemberResponses(groupID uint) ([]model.Use
 	for i, member := range members {
 		response := model.ToUserResponse(member.User)
 		response.GroupRole = member.Role
+		if member.Role == AIBotRole {
+			response.Username = s.getAIBotDisplayName(groupID)
+		}
 		if s.redis != nil {
 			response.IsOnline = s.redis.IsUserOnline(member.User.ID)
+		}
+		if member.Role == AIBotRole {
+			response.IsOnline = true
 		}
 		responses[i] = response
 	}
 	return responses, nil
+}
+
+func (s *ChannelGroupService) getAIBotDisplayName(groupID uint) string {
+	if s.aiConfigRepo == nil {
+		return AIBotUsername
+	}
+	config, err := s.aiConfigRepo.FindByGroupID(groupID)
+	if err != nil {
+		return AIBotUsername
+	}
+	return normalizeAIBotName(config.BotName)
+}
+
+func normalizeAIBotName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return AIBotUsername
+	}
+	return name
 }
 
 func memberUserID(member map[string]interface{}) (uint, bool) {

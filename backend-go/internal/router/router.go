@@ -49,6 +49,7 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 	_ = repository.NewUserChannelRepository(db) // Reserved for future use
 	userGroupRepo := repository.NewUserGroupRepository(db)
 	groupRoleRepo := repository.NewGroupRoleRepository(db)
+	aiConfigRepo := repository.NewGroupAIConfigRepository(db)
 	wechatBindingRepo := repository.NewWechatBindingRepository(db)
 	friendRequestRepo := repository.NewFriendRequestRepository(db)
 	friendshipRepo := repository.NewFriendshipRepository(db)
@@ -57,8 +58,9 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 
 	// Initialize services
 	authService := service.NewAuthService(userRepo, cfg, redisClient)
-	groupService := service.NewChannelGroupService(groupRepo, channelRepo, userGroupRepo, groupRoleRepo, redisClient)
-	messageService := service.NewMessageService(messageRepo, userRepo, eventPublisher)
+	aiService := service.NewAIService(cfg.AI)
+	groupService := service.NewChannelGroupService(groupRepo, channelRepo, userRepo, userGroupRepo, groupRoleRepo, aiConfigRepo, redisClient)
+	messageService := service.NewMessageService(messageRepo, userRepo, channelRepo, userGroupRepo, aiConfigRepo, aiService, eventPublisher)
 	wechatService := service.NewWechatService(userRepo, wechatBindingRepo, cfg)
 	friendService := service.NewFriendService(userRepo, friendRequestRepo, friendshipRepo)
 	directMessageService := service.NewDirectMessageService(userRepo, friendshipRepo, directConversationRepo, directMessageRepo, eventPublisher)
@@ -68,6 +70,7 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 	authController := controller.NewAuthController(authService, cfg)
 	groupController := controller.NewChannelGroupController(groupService)
 	messageController := controller.NewMessageController(messageService)
+	aiController := controller.NewAIController(aiService)
 	wechatController := controller.NewWechatController(wechatService, cfg)
 	friendController := controller.NewFriendController(friendService)
 	directMessageController := controller.NewDirectMessageController(directMessageService)
@@ -133,6 +136,7 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 
 			// Upload routes
 			protected.POST("/upload", authController.UploadImage)
+			protected.POST("/ai", aiController.Ask)
 
 			// Group preview for share links (with membership check)
 			protected.GET("/invite/:code/preview", groupController.GetGroupPreview)
@@ -148,6 +152,11 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 				groups.PUT("/:id", groupController.UpdateGroup)
 				groups.POST("/:id/join", groupController.JoinGroup)
 				groups.POST("/:id/leave", groupController.LeaveGroup)
+				groups.POST("/:id/ai-bot", groupController.AddAIBot)
+				groups.DELETE("/:id/ai-bot", groupController.RemoveAIBot)
+				groups.GET("/:id/ai-config", groupController.GetAIConfig)
+				groups.PUT("/:id/ai-config", groupController.SaveAIConfig)
+				groups.DELETE("/:id/ai-config", groupController.DeleteAIConfig)
 				groups.GET("/:id/members", groupController.GetGroupMembers)
 				groups.GET("/:id/roles", groupController.GetGroupRoles)
 				groups.POST("/:id/roles", groupController.CreateGroupRole)

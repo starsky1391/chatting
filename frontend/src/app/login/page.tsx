@@ -7,7 +7,7 @@ import { useChatStore } from '@/store/useChatStore';
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login } = useChatStore();
+  const login = useChatStore((state) => state.login);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');

@@ -1,8 +1,9 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 import React, { useState, useEffect, useCallback } from 'react';
-import { useChatStore } from '../../store/useChatStore';
+import { getStoredUser, useChatStore } from '../../store/useChatStore';
 import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api';
 import { config } from '@/lib/config';
 import { onWebSocketMessage } from '@/lib/socket';
 import ContextMenu from '../ui/ContextMenu';
@@ -88,7 +89,6 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
   } | null>(null);
 
   const loadVoiceParticipantCounts = useCallback(async (channels: Channel[]) => {
-    const token = localStorage.getItem('token');
     const voiceChannels = channels.filter((channel) => channel.type === 'voice');
     if (voiceChannels.length === 0) {
       setVoiceParticipantCounts({});
@@ -98,11 +98,8 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
     const entries = await Promise.all(
       voiceChannels.map(async (channel) => {
         try {
-          const response = await fetch(`${config.api.baseUrl}/api/voice/${channel.id}/participants`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          const data = await response.json().catch(() => ({}));
-          return [channel.id, Array.isArray(data.data) ? data.data.length : 0] as const;
+          const data = await api.get<Array<{ userId?: number; id?: number }>>(`/api/voice/${channel.id}/participants`);
+          return [channel.id, Array.isArray(data) ? data.length : 0] as const;
         } catch {
           return [channel.id, 0] as const;
         }
@@ -113,23 +110,11 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
 
   const fetchGroups = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const groupsData = Array.isArray(data.data) ? (data.data as ChannelGroup[]) : [];
-        // Find current group
-        const group = groupsData.find((g) => g.id === currentGroupId);
-        if (group) {
-          setCurrentGroup(group);
-          await loadVoiceParticipantCounts(group.voiceChannels || []);
-        } else {
-          setCurrentGroup(null);
-          setVoiceParticipantCounts({});
-        }
+      const groupsData = await api.get<ChannelGroup[]>('/api/groups');
+      const group = Array.isArray(groupsData) ? groupsData.find((g) => g.id === currentGroupId) : null;
+      if (group) {
+        setCurrentGroup(group);
+        await loadVoiceParticipantCounts(group.voiceChannels || []);
       } else {
         setCurrentGroup(null);
         setVoiceParticipantCounts({});
@@ -207,33 +192,19 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
     setChannelError('');
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups/${currentGroup.id}/channels`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name: newChannelName.trim(),
-          type: newChannelType,
-          groupId: currentGroup.id,
-          maxMembers: newChannelType === 'voice' ? newChannelMaxMembers : 0
-        })
+      await api.post(`/api/groups/${currentGroup.id}/channels`, {
+        name: newChannelName.trim(),
+        type: newChannelType,
+        groupId: currentGroup.id,
+        maxMembers: newChannelType === 'voice' ? newChannelMaxMembers : 0
       });
-
-      if (response.ok) {
-        fetchGroups();
-        setNewChannelName('');
-        setNewChannelMaxMembers(100);
-        setIsCreateChannelOpen(false);
-      } else {
-        const data = await response.json().catch(() => ({}));
-        setChannelError(data.error || data.message || '创建频道失败');
-      }
+      await fetchGroups();
+      setNewChannelName('');
+      setNewChannelMaxMembers(100);
+      setIsCreateChannelOpen(false);
     } catch (error) {
       console.error('Failed to create channel:', error);
-      setChannelError('创建频道失败');
+      setChannelError(error instanceof Error ? error.message : '创建频道失败');
     }
   };
 
@@ -249,57 +220,34 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
     setChannelError('');
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups/${currentGroup.id}/channels/${editingChannel.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name: editChannelName.trim(),
-          description: editingChannel.description,
-          maxMembers: editingChannel.type === 'voice' ? editChannelMaxMembers : 0
-        })
+      const updated = await api.put<Channel>(`/api/groups/${currentGroup.id}/channels/${editingChannel.id}`, {
+        name: editChannelName.trim(),
+        description: editingChannel.description,
+        maxMembers: editingChannel.type === 'voice' ? editChannelMaxMembers : 0
       });
-
-      if (response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        const updated = payload.data as Channel | undefined;
-        await fetchGroups();
-        if (updated && currentChannel?.id === updated.id) {
-          setCurrentChannel({
-            id: updated.id,
-            name: updated.name,
-            type: updated.type as 'text' | 'voice',
-            groupId: updated.groupId,
-            maxMembers: updated.maxMembers
-          });
-        }
-        setEditingChannel(null);
-      } else {
-        const data = await response.json().catch(() => ({}));
-        setChannelError(data.error || data.message || '更新频道失败');
+      await fetchGroups();
+      if (updated && currentChannel?.id === updated.id) {
+        setCurrentChannel({
+          id: updated.id,
+          name: updated.name,
+          type: updated.type as 'text' | 'voice',
+          groupId: updated.groupId,
+          maxMembers: updated.maxMembers
+        });
       }
+      setEditingChannel(null);
     } catch (error) {
       console.error('Failed to update channel:', error);
-      setChannelError('更新频道失败');
+      setChannelError(error instanceof Error ? error.message : '更新频道失败');
     }
   };
 
   const handleDeleteChannel = async (channelId: number, groupId: number) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups/${groupId}/channels/${channelId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (response.ok) {
-        fetchGroups();
-        if (currentChannel?.id === channelId) {
-          setCurrentChannel(null);
-        }
+      await api.delete<null>(`/api/groups/${groupId}/channels/${channelId}`);
+      await fetchGroups();
+      if (currentChannel?.id === channelId) {
+        setCurrentChannel(null);
       }
     } catch (error) {
       console.error('Failed to delete channel:', error);
@@ -515,14 +463,9 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
       <div className="p-2 border-t border-zinc-700/50 bg-zinc-800/30">
         <button
           onClick={() => {
-            const user = localStorage.getItem('user');
+            const user = getStoredUser();
             if (user) {
-              try {
-                const userData = JSON.parse(user);
-                router.push(`/${userData.id}`);
-              } catch {
-                router.push('/profile');
-              }
+              router.push(`/${user.id}`);
             } else {
               router.push('/profile');
             }

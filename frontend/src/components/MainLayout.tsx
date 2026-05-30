@@ -1,11 +1,10 @@
 "use client";
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { useChatStore } from '@/store/useChatStore';
+import { getStoredToken, useChatStore } from '@/store/useChatStore';
 import MessageArea from './messages/MessageArea';
 import ChannelList from './sidebar/ChannelList';
 import MemberList from './members/MemberList';
 import ServerList from './sidebar/ServerList';
-import { config } from '@/lib/config';
 import { api } from '../lib/api';
 import {
   connectWebSocket,
@@ -69,6 +68,7 @@ const MainLayout: React.FC = () => {
       username?: string;
       avatar?: string;
       avatarUrl?: string;
+      groupRole?: string;
     };
     createdAt?: string | Date;
     message?: {
@@ -79,6 +79,7 @@ const MainLayout: React.FC = () => {
         username?: string;
         avatar?: string;
         avatarUrl?: string;
+        groupRole?: string;
       };
       createdAt: string | Date;
     };
@@ -97,38 +98,28 @@ const MainLayout: React.FC = () => {
       username?: string;
       avatar?: string;
       avatarUrl?: string;
+      groupRole?: string;
     };
     createdAt: string | Date;
-  };
-
-  type ApiEnvelope<T> = {
-    data?: T;
-    error?: string;
-    message?: string;
   };
 
   // Fetch current user info on mount
   const fetchCurrentUser = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
-      const response = await fetch(`${config.api.baseUrl}/api/user`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      const user = await api.get<{
+        username: string;
+        avatar?: string;
+        avatarUrl?: string;
+        isOnline?: boolean;
+        bio?: string;
+      }>('/api/user');
+      updateCurrentUser({
+        username: user.username,
+        avatar: user.avatar,
+        avatarUrl: user.avatarUrl,
+        isOnline: user.isOnline,
+        bio: user.bio
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        const user = data.data || data;
-        updateCurrentUser({
-          username: user.username,
-          avatar: user.avatar,
-          avatarUrl: user.avatarUrl,
-          isOnline: user.isOnline,
-          bio: user.bio
-        });
-        localStorage.setItem('user', JSON.stringify(user));
-      }
     } catch (error) {
       console.error('Failed to fetch user info:', error);
     }
@@ -153,20 +144,12 @@ const MainLayout: React.FC = () => {
 
   // Heartbeat mechanism
   const sendHeartbeat = useCallback(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+    if (!getStoredToken()) return;
 
     // HTTP heartbeat to update database and Redis
-    fetch(`${config.api.baseUrl}/api/user/heartbeat`, {
+    void api.request('/api/user/heartbeat', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => {
-        if (!res.ok) {
-          console.warn('Heartbeat failed:', res.status);
-        }
-      })
-      .catch(err => console.warn('Heartbeat error:', err));
+    }).catch((err) => console.warn('Heartbeat error:', err));
 
     // WebSocket heartbeat
     if (isConnected()) {
@@ -186,8 +169,7 @@ const MainLayout: React.FC = () => {
 
   // Initialize WebSocket
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+    if (!getStoredToken()) return;
 
     const unsubscribeConnect = onConnect(() => setWsConnected(true));
     const unsubscribeDisconnect = onDisconnect(() => setWsConnected(false));
@@ -271,6 +253,7 @@ const MainLayout: React.FC = () => {
             username: message.sender?.username || 'Unknown',
             avatar: message.sender?.avatar || '',
             avatarUrl: message.sender?.avatarUrl || '',
+            groupRole: message.sender?.groupRole || '',
             email: '',
             isOnline: true,
             role: 'member' as const,
@@ -322,25 +305,27 @@ const MainLayout: React.FC = () => {
     if (!currentChannel) return;
     const fetchMessages = async () => {
       try {
-        const token = localStorage.getItem('token');
-        if (!token) { setMessages([]); return; }
+        if (!getStoredToken()) { setMessages([]); return; }
 
         const params = new URLSearchParams({ limit: '50', offset: '0' });
-        const response = await fetch(`${config.api.baseUrl}/api/channels/${currentChannel.id}/messages?${params.toString()}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const messagesArray = Array.isArray(data.data) ? data.data : [];
-          const messagesWithOwnership = messagesArray.map((message: ApiMessage) => ({
-            ...message,
-            isOwn: message.sender?.id === (currentUser?.id || 0)
-          }));
-          setMessages(messagesWithOwnership);
-        } else {
-          setMessages([]);
-        }
+        const messagesArray = await api.get<ApiMessage[]>(`/api/channels/${currentChannel.id}/messages?${params.toString()}`);
+        const messagesWithOwnership = Array.isArray(messagesArray)
+          ? messagesArray.map((message) => ({
+              ...message,
+              sender: {
+                id: message.sender?.id || 0,
+                username: message.sender?.username || 'Unknown',
+                avatar: message.sender?.avatar || '',
+                avatarUrl: message.sender?.avatarUrl || '',
+                groupRole: message.sender?.groupRole || '',
+                email: '',
+                isOnline: true,
+                role: 'member' as const,
+              },
+              isOwn: message.sender?.id === (currentUser?.id || 0)
+            }))
+          : [];
+        setMessages(messagesWithOwnership);
       } catch {
         setMessages([]);
       }
@@ -353,28 +338,22 @@ const MainLayout: React.FC = () => {
     if (!currentChannel?.id) { setMembers([]); return; }
     const fetchChannelMembers = async () => {
       try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
+        if (!getStoredToken()) return;
 
-        const response = await fetch(`${config.api.baseUrl}/api/channels/${currentChannel.id}/active-members`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const membersData = Array.isArray(data.data) ? data.data as SocketUserPayload[] : [];
-          const formattedMembers = membersData.map((m) => ({
-            id: m.userId ?? m.id ?? 0,
-            username: m.username || 'Unknown',
-            avatar: m.avatar || '',
-            avatarUrl: m.avatarUrl || '',
-            isOnline: m.isOnline ?? true,
-            role: 'member' as const,
-            groupRole: m.groupRole,
-            isInCall: false
-          }));
-          setMembers(formattedMembers);
-        }
+        const membersData = await api.get<SocketUserPayload[]>(`/api/channels/${currentChannel.id}/active-members`);
+        const formattedMembers = Array.isArray(membersData)
+          ? membersData.map((m) => ({
+              id: m.userId ?? m.id ?? 0,
+              username: m.username || 'Unknown',
+              avatar: m.avatar || '',
+              avatarUrl: m.avatarUrl || '',
+              isOnline: m.isOnline ?? true,
+              role: 'member' as const,
+              groupRole: m.groupRole,
+              isInCall: false
+            }))
+          : [];
+        setMembers(formattedMembers);
       } catch (error) {
         console.error('Failed to fetch channel members:', error);
       }
@@ -388,19 +367,11 @@ const MainLayout: React.FC = () => {
   useEffect(() => {
     const fetchMembers = async () => {
       try {
-        const token = localStorage.getItem('token');
-        if (!token) { setGroupMembers([]); return; }
+        if (!getStoredToken()) { setGroupMembers([]); return; }
 
         if (currentGroupId) {
-          const response = await fetch(`${config.api.baseUrl}/api/groups/${currentGroupId}/members`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (response.ok) {
-            const data = await response.json();
-            setGroupMembers(Array.isArray(data.data) ? data.data : []);
-          } else {
-            setGroupMembers([]);
-          }
+          const data = await api.get(`/api/groups/${currentGroupId}/members`);
+          setGroupMembers(Array.isArray(data) ? data : []);
         } else {
           setGroupMembers([]);
         }
@@ -419,8 +390,7 @@ const MainLayout: React.FC = () => {
   useEffect(() => {
     const fetchChannels = async () => {
       try {
-        const token = localStorage.getItem('token');
-        if (!token) { setChannels([]); return; }
+        if (!getStoredToken()) { setChannels([]); return; }
 
         const data = await api.get('/api/channels');
         setChannels(Array.isArray(data) ? data : []);
@@ -440,32 +410,21 @@ const MainLayout: React.FC = () => {
       const channelId = Number(currentChannel.id);
       if (!channelId || isNaN(channelId)) return;
 
-      const response = await fetch(`${config.api.baseUrl}/api/channels/${channelId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+      const payload = await api.post<ApiMessage>(`/api/channels/${channelId}/messages`, { content });
+      addMessage({
+        ...payload,
+        sender: {
+          id: payload.sender?.id || currentUser?.id || 0,
+          username: payload.sender?.username || currentUser?.username || 'Unknown',
+          avatar: payload.sender?.avatar || currentUser?.avatar || '',
+          avatarUrl: payload.sender?.avatarUrl || currentUser?.avatarUrl || '',
+          groupRole: payload.sender?.groupRole || '',
+          email: currentUser?.email || '',
+          isOnline: true,
+          role: (currentUser?.role || 'member') as 'admin' | 'moderator' | 'member',
         },
-        body: JSON.stringify({ content })
+        isOwn: true,
       });
-
-      if (!response.ok) throw new Error(`Failed to send message: ${response.status}`);
-      const payload = (await response.json()) as ApiEnvelope<ApiMessage>;
-      if (payload.data) {
-        addMessage({
-          ...payload.data,
-          sender: {
-            id: payload.data.sender?.id || currentUser?.id || 0,
-            username: payload.data.sender?.username || currentUser?.username || 'Unknown',
-            avatar: payload.data.sender?.avatar || currentUser?.avatar || '',
-            avatarUrl: payload.data.sender?.avatarUrl || currentUser?.avatarUrl || '',
-            email: currentUser?.email || '',
-            isOnline: true,
-            role: (currentUser?.role || 'member') as 'admin' | 'moderator' | 'member',
-          },
-          isOwn: true,
-        });
-      }
     } catch (error) {
       console.error('Error sending message:', error);
     }
@@ -476,18 +435,7 @@ const MainLayout: React.FC = () => {
     const channelId = Number(currentChannel.id);
     if (!channelId || isNaN(channelId)) return;
 
-    const response = await fetch(`${config.api.baseUrl}/api/channels/${channelId}/messages/${messageId}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-    });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.message || payload.error || '撤回消息失败');
-    }
-
+    await api.delete(`/api/channels/${channelId}/messages/${messageId}`);
     removeMessage(messageId);
   };
 

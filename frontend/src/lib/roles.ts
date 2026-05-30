@@ -15,6 +15,7 @@ export interface MemberLike {
 const SYSTEM_ROLE_WEIGHT: Record<string, number> = {
   owner: -10000,
   admin: 100,
+  bot: 150,
   moderator: 200,
   guest: 900,
   member: 1000,
@@ -30,6 +31,8 @@ export function roleLabel(name: string) {
       return '所有者';
     case 'admin':
       return '管理员';
+    case 'bot':
+      return 'AI 机器人';
     case 'moderator':
       return '协管';
     case 'guest':
@@ -60,4 +63,3 @@ export function sortMembersByRole<T extends MemberLike>(members: T[], roles: Rol
     return a.username.localeCompare(b.username, 'zh-Hans-CN') || a.id - b.id;
   });
 }
-

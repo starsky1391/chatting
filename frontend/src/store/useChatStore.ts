@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 // 定义类型
-interface User {
+export interface User {
   id: number;
   username: string;
   avatar: string;
@@ -10,9 +10,10 @@ interface User {
   isOnline: boolean;
   role: 'admin' | 'moderator' | 'member';
   bio?: string;
+  groupRole?: string;
 }
 
-interface Channel {
+export interface Channel {
   id: number;
   name: string;
   type: 'text' | 'voice';
@@ -22,7 +23,7 @@ interface Channel {
   callMembers?: number;
 }
 
-interface Message {
+export interface Message {
   id: number;
   content: {
     type: string;
@@ -33,7 +34,7 @@ interface Message {
   isOwn: boolean;
 }
 
-interface Member {
+export interface Member {
   id: number;
   username: string;
   avatar: string;
@@ -44,7 +45,7 @@ interface Member {
   isInCall?: boolean;
 }
 
-interface VoiceParticipant {
+export interface VoiceParticipant {
   identity: string;
   name: string;
   avatarUrl?: string;
@@ -52,7 +53,7 @@ interface VoiceParticipant {
   isMuted: boolean;
 }
 
-interface ChatState {
+export interface ChatState {
   // 用户信息
   currentUser: User | null;
   isAuthenticated: boolean;
@@ -122,14 +123,61 @@ interface ChatState {
   toggleMemberSidebar: () => void;
 }
 
+export function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('token');
+}
+
+export function getStoredUser(): User | null {
+  if (typeof window === 'undefined') return null;
+
+  const savedUser = localStorage.getItem('user');
+  if (!savedUser) return null;
+
+  try {
+    return JSON.parse(savedUser) as User;
+  } catch {
+    localStorage.removeItem('user');
+    return null;
+  }
+}
+
+export function saveStoredAuth(user: User, token?: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('user', JSON.stringify(user));
+  if (token) {
+    localStorage.setItem('token', token);
+  }
+}
+
+export function clearStoredAuth(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('user');
+  localStorage.removeItem('token');
+}
+
+export const chatStoreSelectors = {
+  currentUser: (state: ChatState) => state.currentUser,
+  isAuthenticated: (state: ChatState) => state.isAuthenticated,
+  currentChannel: (state: ChatState) => state.currentChannel,
+  currentGroupId: (state: ChatState) => state.currentGroupId,
+  channels: (state: ChatState) => state.channels,
+  messages: (state: ChatState) => state.messages,
+  members: (state: ChatState) => state.members,
+  groupMembers: (state: ChatState) => state.groupMembers,
+  isInCall: (state: ChatState) => state.isInCall,
+  isMemberSidebarOpen: (state: ChatState) => state.isMemberSidebarOpen,
+  login: (state: ChatState) => state.login,
+  logout: (state: ChatState) => state.logout,
+  updateCurrentUser: (state: ChatState) => state.updateCurrentUser,
+  setCurrentChannel: (state: ChatState) => state.setCurrentChannel,
+  setCurrentGroupId: (state: ChatState) => state.setCurrentGroupId,
+  toggleMemberSidebar: (state: ChatState) => state.toggleMemberSidebar,
+};
+
 // 创建 store
 export const useChatStore = create<ChatState>((set) => {
-  // 从localStorage获取用户信息 (only in browser)
-  let currentUser: User | null = null;
-  if (typeof window !== 'undefined') {
-    const savedUser = localStorage.getItem('user');
-    currentUser = savedUser ? JSON.parse(savedUser) : null;
-  }
+  const currentUser = getStoredUser();
 
   return {
     // 用户信息
@@ -137,9 +185,7 @@ export const useChatStore = create<ChatState>((set) => {
     isAuthenticated: !!currentUser,
     
     login: (user, token) => {
-      // 保存到localStorage
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('token', token);
+      saveStoredAuth(user, token);
       
       // 更新状态
       set({
@@ -149,9 +195,7 @@ export const useChatStore = create<ChatState>((set) => {
     },
     
     logout: () => {
-      // 从localStorage移除
-      localStorage.removeItem('user');
-      localStorage.removeItem('token');
+      clearStoredAuth();
       
       // 更新状态
       set({
@@ -174,9 +218,13 @@ export const useChatStore = create<ChatState>((set) => {
       });
     },
     
-    updateCurrentUser: (user) => set((state) => ({
-      currentUser: state.currentUser ? { ...state.currentUser, ...user } : null
-    })),
+    updateCurrentUser: (user) => set((state) => {
+      const updatedUser = state.currentUser ? { ...state.currentUser, ...user } : null;
+      if (updatedUser) {
+        saveStoredAuth(updatedUser);
+      }
+      return { currentUser: updatedUser };
+    }),
     
     // 频道相关
     channels: [],
@@ -236,7 +284,7 @@ export const useChatStore = create<ChatState>((set) => {
     }),
     setMessages: (messages) => set(() => {
       // 确保只设置数组到messages
-      const validMessages = Array.isArray(messages) ? messages : [];
+      const validMessages = Array.isArray(messages) ? [...messages] : [];
       // 按createdAt正序排序
       validMessages.sort((a, b) => {
         const dateA = new Date(a.createdAt).getTime();

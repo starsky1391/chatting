@@ -183,6 +183,120 @@ func (c *ChannelGroupController) LeaveGroup(ctx *gin.Context) {
 	response.SuccessWithMessage(ctx, nil, "Successfully left group")
 }
 
+func (c *ChannelGroupController) AddAIBot(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+
+	bot, err := c.groupService.AddAIBotToGroup(uint(id), userID)
+	if err != nil {
+		if errors.Is(err, service.ErrNoPermission) {
+			response.Forbidden(ctx, "You don't have permission to manage this group")
+			return
+		}
+		response.InternalError(ctx, "Failed to add AI bot")
+		return
+	}
+
+	response.Success(ctx, bot)
+}
+
+func (c *ChannelGroupController) RemoveAIBot(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+
+	if err := c.groupService.RemoveAIBotFromGroup(uint(id), userID); err != nil {
+		if errors.Is(err, service.ErrNoPermission) {
+			response.Forbidden(ctx, "You don't have permission to manage this group")
+			return
+		}
+		response.InternalError(ctx, "Failed to remove AI bot")
+		return
+	}
+
+	response.SuccessWithMessage(ctx, nil, "AI bot removed")
+}
+
+func (c *ChannelGroupController) GetAIConfig(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+
+	config, err := c.groupService.GetGroupAIConfig(uint(id), userID)
+	if err != nil {
+		if errors.Is(err, service.ErrNoPermission) {
+			response.Forbidden(ctx, "Only the group owner can view AI config")
+			return
+		}
+		response.NotFound(ctx, "AI config not found")
+		return
+	}
+
+	response.Success(ctx, config)
+}
+
+func (c *ChannelGroupController) SaveAIConfig(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+
+	var input service.UpdateGroupAIConfigInput
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+
+	config, err := c.groupService.SaveGroupAIConfig(uint(id), userID, input)
+	if err != nil {
+		if errors.Is(err, service.ErrNoPermission) {
+			response.Forbidden(ctx, "Only the group owner can modify AI config")
+			return
+		}
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+
+	response.Success(ctx, config)
+}
+
+func (c *ChannelGroupController) DeleteAIConfig(ctx *gin.Context) {
+	userID := ctx.GetUint("userID")
+
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid group ID")
+		return
+	}
+
+	if err := c.groupService.DeleteGroupAIConfig(uint(id), userID); err != nil {
+		if errors.Is(err, service.ErrNoPermission) {
+			response.Forbidden(ctx, "Only the group owner can delete AI config")
+			return
+		}
+		response.InternalError(ctx, "Failed to delete AI config")
+		return
+	}
+
+	response.SuccessWithMessage(ctx, nil, "AI config deleted")
+}
+
 func (c *ChannelGroupController) GetGroupMembers(ctx *gin.Context) {
 	id, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
 	if err != nil {

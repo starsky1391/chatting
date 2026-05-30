@@ -3,8 +3,8 @@
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useParams, usePathname } from 'next/navigation';
-import { useChatStore } from '@/store/useChatStore';
-import { config } from '@/lib/config';
+import { getStoredToken, getStoredUser, useChatStore } from '@/store/useChatStore';
+import { api } from '@/lib/api';
 
 const MainLayout = dynamic(() => import('../../../components/MainLayout'), {
   ssr: false,
@@ -37,19 +37,7 @@ export default function GroupPage() {
 
   const fetchGroupPreview = useCallback(async (inviteCode: string) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/invite/${encodeURIComponent(inviteCode)}/preview`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (!response.ok) {
-        setError('邀请码无效或群组不存在');
-        setIsLoading(false);
-        return;
-      }
-
-      const data = await response.json();
-      const group = data.data as GroupPreview;
+      const group = await api.get<GroupPreview>(`/api/invite/${encodeURIComponent(inviteCode)}/preview`);
       setGroupPreview(group);
 
       // If already a member, set as current group and show main layout
@@ -61,33 +49,26 @@ export default function GroupPage() {
       setIsLoading(false);
     } catch (err) {
       console.error('Failed to fetch group preview:', err);
-      setError('加载群组信息失败');
+      setError('邀请码无效或群组不存在');
       setIsLoading(false);
     }
   }, [setCurrentChannel, setCurrentGroupId]);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const user = localStorage.getItem('user');
-
-    if (!token) {
+    if (!getStoredToken()) {
       // Redirect to login with current URL as redirect param
       router.push(`/login?redirect=${encodeURIComponent(pathname)}`);
       return;
     }
 
     // Verify the userId in URL matches the logged-in user
+    const user = getStoredUser();
     if (user) {
-      try {
-        const userData = JSON.parse(user);
-        const urlUserId = params.userId;
-        if (urlUserId && String(userData.id) !== String(urlUserId)) {
-          // Redirect to correct user URL with the same invite code
-          router.replace(`/${userData.id}/${params.inviteCode}`);
-          return;
-        }
-      } catch {
-        // Ignore parse errors
+      const urlUserId = params.userId;
+      if (urlUserId && String(user.id) !== String(urlUserId)) {
+        // Redirect to correct user URL with the same invite code
+        router.replace(`/${user.id}/${params.inviteCode}`);
+        return;
       }
     }
 
@@ -108,21 +89,9 @@ export default function GroupPage() {
     
     setIsJoining(true);
     try {
-      const token = localStorage.getItem('token');
       const inviteCodeParam = params.inviteCode as string;
       const inviteCode = inviteCodeParam.replace(/_(\d+)$/, '#$1');
-      
-      const response = await fetch(`${config.api.baseUrl}/api/groups/join/${encodeURIComponent(inviteCode)}`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to join group');
-      }
+      await api.post(`/api/groups/join/${encodeURIComponent(inviteCode)}`, {});
 
       // Success - set as current group
       setCurrentGroupId(groupPreview.id);
@@ -160,13 +129,10 @@ export default function GroupPage() {
           <p className="text-gray-400 mb-6">{error}</p>
           <button
             onClick={() => {
-              const user = localStorage.getItem('user');
+              const user = getStoredUser();
               if (user) {
-                try {
-                  const userData = JSON.parse(user);
-                  router.push(`/${userData.id}`);
-                  return;
-                } catch {}
+                router.push(`/${user.id}`);
+                return;
               }
               router.push('/');
             }}
@@ -229,13 +195,10 @@ export default function GroupPage() {
           {/* Cancel link */}
           <button
             onClick={() => {
-              const user = localStorage.getItem('user');
+              const user = getStoredUser();
               if (user) {
-                try {
-                  const userData = JSON.parse(user);
-                  router.push(`/${userData.id}`);
-                  return;
-                } catch {}
+                router.push(`/${user.id}`);
+                return;
               }
               router.push('/');
             }}

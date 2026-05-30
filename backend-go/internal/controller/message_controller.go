@@ -40,6 +40,18 @@ func (c *MessageController) GetChannelMessages(ctx *gin.Context) {
 		offset = 0
 	}
 
+	queryText := ctx.Query("q")
+	var senderID *uint
+	if senderQuery := ctx.Query("senderId"); senderQuery != "" {
+		parsed, parseErr := strconv.ParseUint(senderQuery, 10, 32)
+		if parseErr != nil {
+			response.BadRequest(ctx, "Invalid senderId")
+			return
+		}
+		value := uint(parsed)
+		senderID = &value
+	}
+
 	var day *time.Time
 	var startAt *time.Time
 	var endAt *time.Time
@@ -68,7 +80,7 @@ func (c *MessageController) GetChannelMessages(ctx *gin.Context) {
 		day = &parsed
 	}
 
-	messages, err := c.messageService.GetChannelMessages(uint(channelID), limit, offset, day, startAt, endAt)
+	messages, err := c.messageService.GetChannelMessages(uint(channelID), limit, offset, day, startAt, endAt, queryText, senderID)
 	if err != nil {
 		response.InternalError(ctx, "Failed to get messages")
 		return

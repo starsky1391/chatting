@@ -140,6 +140,7 @@ type SenderResponse struct {
 	Username  string `json:"username"`
 	Avatar    string `json:"avatar"`
 	AvatarURL string `json:"avatarUrl"`
+	GroupRole string `json:"groupRole,omitempty"`
 }
 
 type UserResponse struct {

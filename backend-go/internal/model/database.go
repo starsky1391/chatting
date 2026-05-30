@@ -41,6 +41,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&User{},
 		&ChannelGroup{},
 		&GroupRole{},
+		&GroupAIConfig{},
 		&Channel{},
 		&Message{},
 		&UserChannel{},

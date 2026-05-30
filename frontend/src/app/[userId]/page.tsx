@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
 import { useRouter, useParams, usePathname } from 'next/navigation';
+import { getStoredToken, getStoredUser } from '@/store/useChatStore';
 
 const MainLayout = dynamic(() => import('../../components/MainLayout'), {
   ssr: false,
@@ -16,27 +17,20 @@ export default function UserHomePage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const user = localStorage.getItem('user');
-
-    if (!token) {
+    if (!getStoredToken()) {
       // Redirect to login with current URL as redirect param
       router.push(`/login?redirect=${encodeURIComponent(pathname)}`);
       return;
     }
 
     // Verify the userId in URL matches the logged-in user
+    const user = getStoredUser();
     if (user) {
-      try {
-        const userData = JSON.parse(user);
-        const urlUserId = params.userId;
-        if (urlUserId && String(userData.id) !== String(urlUserId)) {
-          // URL userId doesn't match logged-in user, redirect to their own page
-          router.replace(`/${userData.id}`);
-          return;
-        }
-      } catch {
-        // Ignore parse errors
+      const urlUserId = params.userId;
+      if (urlUserId && String(user.id) !== String(urlUserId)) {
+        // URL userId doesn't match logged-in user, redirect to their own page
+        router.replace(`/${user.id}`);
+        return;
       }
     }
 

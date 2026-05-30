@@ -1,9 +1,11 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import React, { MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { MouseEvent, useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Ban, Check, Copy, MessageCircle, User, UserMinus, UserPlus, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api';
 import { config } from '@/lib/config';
 import { useChatStore } from '@/store/useChatStore';
 
@@ -16,14 +18,6 @@ export type ContextMenuUser = {
   role?: string;
   bio?: string;
   isOnline?: boolean;
-};
-
-type ApiEnvelope<T> = {
-  success?: boolean;
-  data?: T;
-  error?: string;
-  message?: string;
-  msg?: string;
 };
 
 type FriendRelationUser = {
@@ -60,23 +54,10 @@ type MenuState = {
   y: number;
 };
 
-async function request<T>(endpoint: string, init: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem('token');
-  const response = await fetch(`${config.api.baseUrl}${endpoint}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init.headers || {}),
-    },
-  });
-
-  const payload = (await response.json().catch(() => ({}))) as ApiEnvelope<T>;
-  if (!response.ok) {
-    throw new Error(payload.error || payload.message || payload.msg || 'Request failed');
-  }
-  return payload.data as T;
-}
+const MENU_WIDTH = 240;
+const MENU_HEIGHT = 360;
+const MENU_GAP = 8;
+const OPEN_MENU_EVENT = 'chat:user-context-menu-open';
 
 function getAvatarUrl(user: ContextMenuUser) {
   if (!user.avatarUrl) return '';
@@ -91,24 +72,59 @@ function getInitial(user: ContextMenuUser) {
 function clampPosition(x: number, y: number) {
   if (typeof window === 'undefined') return { x, y };
   return {
-    x: Math.max(8, Math.min(x, window.innerWidth - 248)),
-    y: Math.max(8, Math.min(y, window.innerHeight - 360)),
+    x: Math.max(MENU_GAP, Math.min(x, window.innerWidth - MENU_WIDTH - MENU_GAP)),
+    y: Math.max(MENU_GAP, Math.min(y, window.innerHeight - MENU_HEIGHT - MENU_GAP)),
   };
+}
+
+function getAnchorPosition(anchor: Element) {
+  const rect = anchor.getBoundingClientRect();
+  const preferRight = rect.left + rect.width + MENU_GAP + MENU_WIDTH <= window.innerWidth;
+  const x = preferRight ? rect.right + MENU_GAP : rect.left - MENU_WIDTH - MENU_GAP;
+  return clampPosition(x, rect.top);
 }
 
 export function useUserContextMenu() {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const instanceId = useId();
+
+  const notifyOpen = useCallback(() => {
+    window.dispatchEvent(
+      new CustomEvent(OPEN_MENU_EVENT, {
+        detail: { instanceId },
+      })
+    );
+  }, [instanceId]);
 
   const openUserMenu = useCallback((event: MouseEvent, user: ContextMenuUser) => {
     event.preventDefault();
     event.stopPropagation();
-    const position = clampPosition(event.clientX, event.clientY);
+    notifyOpen();
+    const anchor = event.currentTarget instanceof Element ? event.currentTarget : null;
+    const position = anchor ? getAnchorPosition(anchor) : clampPosition(event.clientX, event.clientY);
     setMenu({ user, ...position });
-  }, []);
+  }, [notifyOpen]);
+
+  const openUserMenuAtElement = useCallback((anchor: Element, user: ContextMenuUser) => {
+    notifyOpen();
+    setMenu({ user, ...getAnchorPosition(anchor) });
+  }, [notifyOpen]);
 
   const closeUserMenu = useCallback(() => setMenu(null), []);
 
-  return { menu, openUserMenu, closeUserMenu };
+  useEffect(() => {
+    const handleOtherMenuOpen = (event: Event) => {
+      const customEvent = event as CustomEvent<{ instanceId?: string }>;
+      if (customEvent.detail?.instanceId !== instanceId) {
+        setMenu(null);
+      }
+    };
+
+    window.addEventListener(OPEN_MENU_EVENT, handleOtherMenuOpen);
+    return () => window.removeEventListener(OPEN_MENU_EVENT, handleOtherMenuOpen);
+  }, [instanceId]);
+
+  return { menu, openUserMenu, openUserMenuAtElement, closeUserMenu };
 }
 
 export function UserContextMenu({
@@ -138,9 +154,9 @@ export function UserContextMenu({
     setRelationship({ status: 'loading' });
     try {
       const [friends, incoming, outgoing] = await Promise.all([
-        request<Friendship[]>('/api/friends'),
-        request<FriendRequest[]>('/api/friends/requests/incoming'),
-        request<FriendRequest[]>('/api/friends/requests/outgoing'),
+        api.get<Friendship[]>('/api/friends'),
+        api.get<FriendRequest[]>('/api/friends/requests/incoming'),
+        api.get<FriendRequest[]>('/api/friends/requests/outgoing'),
       ]);
 
       if (Array.isArray(friends) && friends.some((item) => item.friend.id === targetUserId)) {
@@ -227,10 +243,7 @@ export function UserContextMenu({
   const openDirectMessage = () => {
     if (!user || !currentUser?.id || isSelf) return;
     void runAction(async () => {
-      const conversation = await request<DirectConversation>('/api/dm/conversations', {
-        method: 'POST',
-        body: JSON.stringify({ userId: user.id }),
-      });
+      const conversation = await api.post<DirectConversation>('/api/dm/conversations', { userId: user.id });
       onClose();
       router.push(`/${currentUser.id}/dm?conversation=${conversation.id}`);
     }, '已打开私信');
@@ -239,10 +252,7 @@ export function UserContextMenu({
   const sendFriendRequest = () => {
     if (!user || isSelf) return;
     void runAction(async () => {
-      await request<FriendRequest>('/api/friends/requests', {
-        method: 'POST',
-        body: JSON.stringify({ addresseeId: user.id }),
-      });
+      await api.post<FriendRequest>('/api/friends/requests', { addresseeId: user.id });
       await loadRelationship(user.id);
     }, '好友申请已发送');
   };
@@ -250,7 +260,7 @@ export function UserContextMenu({
   const updateFriendRequest = (requestId: number, action: 'accept' | 'reject') => {
     if (!user) return;
     void runAction(async () => {
-      await request<FriendRequest>(`/api/friends/requests/${requestId}/${action}`, { method: 'POST' });
+      await api.post<FriendRequest>(`/api/friends/requests/${requestId}/${action}`, {});
       await loadRelationship(user.id);
     }, action === 'accept' ? '已接受好友申请' : '已拒绝好友申请');
   };
@@ -258,7 +268,7 @@ export function UserContextMenu({
   const removeFriend = () => {
     if (!user) return;
     void runAction(async () => {
-      await request<null>(`/api/friends/${user.id}`, { method: 'DELETE' });
+      await api.delete<null>(`/api/friends/${user.id}`);
       await loadRelationship(user.id);
     }, '已删除好友');
   };
@@ -271,12 +281,12 @@ export function UserContextMenu({
       .catch(() => setFeedback('复制失败'));
   };
 
-  if (!menu || !user) return null;
+  if (typeof document === 'undefined' || !menu || !user) return null;
 
-  return (
+  return createPortal(
     <>
       <div
-        className="fixed z-[100] w-60 overflow-hidden rounded-lg border border-zinc-700 bg-[#18181b] py-2 text-sm text-zinc-200 shadow-2xl"
+        className="fixed z-[9999] w-60 overflow-hidden rounded-lg border border-zinc-700 bg-[#18181b] py-2 text-sm text-zinc-200 shadow-2xl"
         style={{ left: menu.x, top: menu.y }}
         onClick={(event) => event.stopPropagation()}
       >
@@ -316,7 +326,7 @@ export function UserContextMenu({
 
       {profileUser && (
         <div
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
           onClick={() => setProfileUser(null)}
         >
           <div
@@ -433,7 +443,8 @@ export function UserContextMenu({
           </div>
         </div>
       )}
-    </>
+    </>,
+    document.body
   );
 }
 

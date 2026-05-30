@@ -2,29 +2,23 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { getStoredToken, getStoredUser } from '@/store/useChatStore';
 
 export default function Home() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const user = localStorage.getItem('user');
-
-    if (!token) {
+    if (!getStoredToken()) {
       router.replace('/login');
       return;
     }
 
     // Redirect to user-specific home page
+    const user = getStoredUser();
     if (user) {
-      try {
-        const userData = JSON.parse(user);
-        router.replace(`/${userData.id}`);
-        return;
-      } catch {
-        // Ignore parse errors
-      }
+      router.replace(`/${user.id}`);
+      return;
     }
 
     queueMicrotask(() => setIsLoading(false));

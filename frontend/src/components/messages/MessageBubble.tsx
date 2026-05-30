@@ -1,10 +1,11 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
-import React, { useEffect, useState, KeyboardEvent } from 'react';
+import React, { useEffect, useRef, useState, KeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { config } from '@/lib/config';
 import { UserContextMenu, useUserContextMenu } from '@/components/user/UserContextMenu';
 import { RotateCcw } from 'lucide-react';
+import { roleLabel } from '@/lib/roles';
 
 interface Message {
   id: number;
@@ -17,6 +18,7 @@ interface Message {
     username: string;
     avatar: string;
     avatarUrl?: string;
+    groupRole?: string;
   };
   createdAt: Date | string;
   isOwn: boolean;
@@ -25,13 +27,20 @@ interface Message {
 interface MessageBubbleProps {
   message: Message;
   onRecall?: (messageId: number) => Promise<void>;
+  onMentionUser?: (username: string) => void;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall }) => {
-  const { menu, openUserMenu, closeUserMenu } = useUserContextMenu();
+const emphasizeMentions = (content: string) => (
+  content.replace(/(^|[\s(])@([^\s@.,:;!?，。！？、)]+)/g, '$1**@$2**')
+);
+
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMentionUser }) => {
+  const { menu, openUserMenu, openUserMenuAtElement, closeUserMenu } = useUserContextMenu();
   const [now, setNow] = useState(() => Date.now());
   const [isRecalling, setIsRecalling] = useState(false);
   const [recallError, setRecallError] = useState('');
+  const avatarClickTimerRef = useRef<number | null>(null);
+  const avatarRef = useRef<HTMLDivElement | null>(null);
   const safeMessage = {
     id: message.id || 0,
     content: message.content || { type: 'text', body: '' },
@@ -39,7 +48,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall }) => {
       id: message.sender?.id || 0,
       username: message.sender?.username || 'Unknown',
       avatar: message.sender?.avatar || 'U',
-      avatarUrl: message.sender?.avatarUrl || ''
+      avatarUrl: message.sender?.avatarUrl || '',
+      groupRole: message.sender?.groupRole || ''
     },
     createdAt: message.createdAt || new Date(),
     isOwn: message.isOwn || false
@@ -65,6 +75,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall }) => {
     return () => window.clearInterval(timer);
   }, [safeMessage.isOwn, recallSecondsLeft]);
 
+  useEffect(() => {
+    return () => {
+      if (avatarClickTimerRef.current) {
+        window.clearTimeout(avatarClickTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') closeImageModal();
   };
@@ -80,6 +98,44 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall }) => {
     } finally {
       setIsRecalling(false);
     }
+  };
+
+  const handleAvatarClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const anchor = event.currentTarget;
+
+    if (avatarClickTimerRef.current) {
+      window.clearTimeout(avatarClickTimerRef.current);
+    }
+
+    avatarClickTimerRef.current = window.setTimeout(() => {
+      openUserMenuAtElement(anchor, safeMessage.sender);
+      avatarClickTimerRef.current = null;
+    }, 180);
+  };
+
+  const openSenderMenu = (event: React.MouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (avatarRef.current) {
+      openUserMenuAtElement(avatarRef.current, safeMessage.sender);
+      return;
+    }
+    openUserMenu(event, safeMessage.sender);
+  };
+
+  const handleAvatarDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (avatarClickTimerRef.current) {
+      window.clearTimeout(avatarClickTimerRef.current);
+      avatarClickTimerRef.current = null;
+    }
+
+    closeUserMenu();
+    onMentionUser?.(safeMessage.sender.username);
   };
 
   // Render avatar - use image if available, otherwise show initial
@@ -102,8 +158,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall }) => {
 
       {!safeMessage.isOwn && (
         <div
+          ref={avatarRef}
           className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-sm font-bold shadow-lg overflow-hidden cursor-pointer"
+          onClick={handleAvatarClick}
+          onDoubleClick={handleAvatarDoubleClick}
           onContextMenu={(event) => openUserMenu(event, safeMessage.sender)}
+          title="单击查看资料，双击 @他"
         >
           {renderAvatar()}
         </div>
@@ -125,10 +185,16 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall }) => {
           )}
           <span
             className={`text-sm font-medium cursor-pointer ${safeMessage.isOwn ? 'text-indigo-400' : 'text-zinc-300'}`}
-            onContextMenu={(event) => openUserMenu(event, safeMessage.sender)}
+            onClick={openSenderMenu}
+            onContextMenu={openSenderMenu}
           >
             {safeMessage.sender.username}
           </span>
+          {safeMessage.sender.groupRole && (
+            <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-300">
+              {roleLabel(safeMessage.sender.groupRole)}
+            </span>
+          )}
           <span className="text-xs text-zinc-500">
             {messageDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
@@ -183,7 +249,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall }) => {
           }`}>
             <div className="prose prose-sm prose-invert max-w-none">
               <ReactMarkdown>
-                {safeMessage.content.body || 'No content'}
+                {emphasizeMentions(safeMessage.content.body || 'No content')}
               </ReactMarkdown>
             </div>
           </div>
@@ -197,8 +263,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall }) => {
 
       {safeMessage.isOwn && (
         <div
+          ref={avatarRef}
           className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-sm font-bold shadow-lg overflow-hidden cursor-pointer"
+          onClick={handleAvatarClick}
+          onDoubleClick={handleAvatarDoubleClick}
           onContextMenu={(event) => openUserMenu(event, safeMessage.sender)}
+          title="单击查看资料，双击 @他"
         >
           {renderAvatar()}
         </div>

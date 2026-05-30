@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import { useChatStore } from '@/store/useChatStore';
 import { config } from '@/lib/config';
+import { getStoredUser, useChatStore } from '@/store/useChatStore';
 
 interface UserProfile {
   id: number;
@@ -19,7 +19,8 @@ interface UserProfile {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { currentUser, updateCurrentUser } = useChatStore();
+  const updateCurrentUser = useChatStore((state) => state.updateCurrentUser);
+  const logout = useChatStore((state) => state.logout);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -57,11 +58,7 @@ export default function ProfilePage() {
       const data = await api.put('/api/user', formData) as UserProfile;
       setProfile(data);
       setEditing(false);
-      // Update store and localStorage
       updateCurrentUser({ username: data.username, bio: data.bio });
-      if (currentUser) {
-        localStorage.setItem('user', JSON.stringify({ ...currentUser, username: data.username, bio: data.bio }));
-      }
     } catch (error) {
       console.error('Failed to update profile:', error);
     } finally {
@@ -77,27 +74,11 @@ export default function ProfilePage() {
     formData.append('avatar', file);
 
     try {
-      const response = await fetch(`${config.api.baseUrl}/api/user/avatar`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formData
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        // Backend returns { avatarUrl: "...", user: {...} }
-        const avatarUrl = data.data?.avatarUrl || data.avatarUrl;
-        if (avatarUrl) {
-          setProfile(prev => prev ? { ...prev, avatarUrl } : null);
-          // Update store and localStorage
-          updateCurrentUser({ avatarUrl });
-          if (currentUser) {
-            const updatedUser = { ...currentUser, avatarUrl };
-            localStorage.setItem('user', JSON.stringify(updatedUser));
-          }
-        }
+      const data = await api.upload<{ avatarUrl?: string }>('/api/user/avatar', formData);
+      const avatarUrl = data?.avatarUrl;
+      if (avatarUrl) {
+        setProfile(prev => prev ? { ...prev, avatarUrl } : null);
+        updateCurrentUser({ avatarUrl });
       }
     } catch (error) {
       console.error('Failed to upload avatar:', error);
@@ -105,8 +86,7 @@ export default function ProfilePage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    logout();
     router.push('/login');
   };
 
@@ -131,14 +111,9 @@ export default function ProfilePage() {
         <div className="flex items-center justify-between mb-6">
           <button
             onClick={() => {
-              const user = localStorage.getItem('user');
+              const user = getStoredUser();
               if (user) {
-                try {
-                  const userData = JSON.parse(user);
-                  router.push(`/${userData.id}`);
-                } catch {
-                  router.push('/');
-                }
+                router.push(`/${user.id}`);
               } else {
                 router.push('/');
               }

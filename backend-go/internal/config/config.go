@@ -19,11 +19,18 @@ type Config struct {
 	LogLevel       string
 	AllowedOrigins []string
 	Wechat         WechatConfig
+	AI             AIConfig
 }
 
 type WechatConfig struct {
 	AppID     string
 	AppSecret string
+}
+
+type AIConfig struct {
+	APIURL string
+	APIKey string
+	Model  string
 }
 
 type DatabaseConfig struct {
@@ -150,6 +157,12 @@ func Load() (*Config, error) {
 	// Wechat config
 	cfg.Wechat.AppID = viper.GetString("WECHAT_APP_ID")
 	cfg.Wechat.AppSecret = viper.GetString("WECHAT_APP_SECRET")
+
+	// AI config. AI_API_URL can point to any service that accepts a prompt and
+	// returns OpenAI-style JSON or a simple answer/content/message field.
+	cfg.AI.APIURL = viper.GetString("AI_API_URL")
+	cfg.AI.APIKey = viper.GetString("AI_API_KEY")
+	cfg.AI.Model = viper.GetString("AI_MODEL")
 
 	return cfg, nil
 }

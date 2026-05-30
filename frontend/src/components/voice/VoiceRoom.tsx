@@ -2,6 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useChatStore } from '@/store/useChatStore';
+import { useShallow } from 'zustand/react/shallow';
 import { config } from '@/lib/config';
 import {
   onWebSocketMessage,
@@ -56,7 +57,15 @@ type VoiceSignalPayload = {
 };
 
 const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
-  const { currentUser, isInCall, joinCall, leaveCall, setLocalStream } = useChatStore();
+  const { currentUser, isInCall, joinCall, leaveCall, setLocalStream } = useChatStore(
+    useShallow((state) => ({
+      currentUser: state.currentUser,
+      isInCall: state.isInCall,
+      joinCall: state.joinCall,
+      leaveCall: state.leaveCall,
+      setLocalStream: state.setLocalStream,
+    }))
+  );
 
   const [participants, setParticipants] = useState<Map<number, VoiceParticipant>>(new Map());
   const [isMuted, setIsMuted] = useState(false);

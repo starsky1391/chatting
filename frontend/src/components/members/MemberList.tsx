@@ -2,13 +2,23 @@
 /* eslint-disable @next/next/no-img-element */
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, Users } from 'lucide-react';
-import { useChatStore } from '../../store/useChatStore';
+import { useShallow } from 'zustand/react/shallow';
+import { chatStoreSelectors, useChatStore } from '../../store/useChatStore';
 import { config } from '@/lib/config';
 import { UserContextMenu, useUserContextMenu } from '@/components/user/UserContextMenu';
 import { getMemberRoleName, roleLabel, roleWeight, sortMembersByRole } from '@/lib/roles';
 
 const MemberList: React.FC = () => {
-  const { members, groupMembers, currentGroupId, currentChannel, isMemberSidebarOpen, toggleMemberSidebar } = useChatStore();
+  const { members, groupMembers, currentGroupId, currentChannel, isMemberSidebarOpen, toggleMemberSidebar } = useChatStore(
+    useShallow((state) => ({
+      members: chatStoreSelectors.members(state),
+      groupMembers: chatStoreSelectors.groupMembers(state),
+      currentGroupId: chatStoreSelectors.currentGroupId(state),
+      currentChannel: chatStoreSelectors.currentChannel(state),
+      isMemberSidebarOpen: chatStoreSelectors.isMemberSidebarOpen(state),
+      toggleMemberSidebar: chatStoreSelectors.toggleMemberSidebar(state),
+    }))
+  );
   const { menu, openUserMenu, closeUserMenu } = useUserContextMenu();
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
@@ -18,6 +28,8 @@ const MemberList: React.FC = () => {
         return { text: 'Owner', color: 'bg-amber-500/20 text-amber-400' };
       case 'admin':
         return { text: 'Admin', color: 'bg-purple-500/20 text-purple-400' };
+      case 'bot':
+        return { text: 'AI', color: 'bg-green-500/20 text-green-400' };
       case 'moderator':
         return { text: 'Mod', color: 'bg-blue-500/20 text-blue-400' };
       case 'guest':

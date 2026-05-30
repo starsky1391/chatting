@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useChatStore } from '../../store/useChatStore';
 import { usePathname, useRouter } from 'next/navigation';
+import { Plus, Search, Users, X } from 'lucide-react';
+import api from '@/lib/api';
 import { config } from '@/lib/config';
 import ContextMenu from '../ui/ContextMenu';
 import ConfirmModal from '../ui/ConfirmModal';
@@ -31,7 +33,6 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
   const [newGroupName, setNewGroupName] = useState('');
   const [joinInviteCode, setJoinInviteCode] = useState('');
   const [joinError, setJoinError] = useState('');
@@ -55,14 +56,8 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
 
   const fetchGroups = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setGroups(Array.isArray(data.data) ? data.data : []);
-      }
+      const data = await api.get<Group[]>('/api/groups');
+      setGroups(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch groups:', error);
     }
@@ -83,20 +78,10 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) return;
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ name: newGroupName })
-      });
-      if (response.ok) {
-        setNewGroupName('');
-        setIsAddModalOpen(false);
-        void fetchGroups();
-      }
+      await api.post<Group>('/api/groups', { name: newGroupName });
+      setNewGroupName('');
+      setIsAddModalOpen(false);
+      void fetchGroups();
     } catch (error) {
       console.error('Failed to create group:', error);
     }
@@ -105,18 +90,12 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
   const handleDeleteGroup = async () => {
     if (!deleteConfirm) return;
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups/${deleteConfirm.id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        if (currentGroupId === deleteConfirm.id) {
-          setCurrentGroupId(null);
-          setCurrentChannel(null);
-        }
-        void fetchGroups();
+      await api.delete<null>(`/api/groups/${deleteConfirm.id}`);
+      if (currentGroupId === deleteConfirm.id) {
+        setCurrentGroupId(null);
+        setCurrentChannel(null);
       }
+      void fetchGroups();
     } catch (error) {
       console.error('Failed to delete group:', error);
     }
@@ -124,24 +103,16 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
   };
 
   const handleJoinGroup = async () => {
-    if (!joinInviteCode.trim()) return;
+    const inviteCode = normalizeInviteInput(joinInviteCode);
+    if (!inviteCode) return;
     setJoinError('');
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${config.api.baseUrl}/api/groups/join/${encodeURIComponent(joinInviteCode.trim())}`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        setJoinInviteCode('');
-        setIsAddModalOpen(false);
-        void fetchGroups();
-      } else {
-        const data = await response.json().catch(() => ({}));
-        setJoinError(data.message || 'Invalid invite code');
-      }
-    } catch {
-      setJoinError('Failed to join server');
+      await api.post<Group>(`/api/groups/join/${encodeURIComponent(inviteCode)}`, null);
+      setJoinInviteCode('');
+      setIsAddModalOpen(false);
+      void fetchGroups();
+    } catch (error) {
+      setJoinError(error instanceof Error ? error.message : 'Failed to join server');
     }
   };
 
@@ -160,13 +131,7 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
 
   const handleLogout = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        await fetch(`${config.api.baseUrl}/api/auth/logout`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).catch(() => {});
-      }
+      await api.post<null>('/api/auth/logout', null).catch(() => {});
     } catch (error) {
       console.error('Logout error:', error);
     }
@@ -256,7 +221,7 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
           onMouseLeave={hideTooltip}
         >
           <button
-            onClick={() => { setIsAddModalOpen(true); setActiveTab('create'); setJoinError(''); }}
+            onClick={() => { setIsAddModalOpen(true); setJoinError(''); }}
             className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-700/50 text-zinc-400 transition-all duration-200 hover:scale-105 hover:rounded-xl hover:bg-green-500/20 hover:text-green-400"
             aria-label="Add a Server"
           >
@@ -365,88 +330,93 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
 
       {/* Add Server Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-[#1a1a2e] rounded-xl w-[400px] shadow-xl overflow-hidden">
-            {/* Tab Header */}
-            <div className="flex border-b border-zinc-700">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div className="w-full max-w-[460px] overflow-hidden rounded-[22px] bg-[#17172a] text-zinc-100 shadow-2xl ring-1 ring-white/5">
+            <div className="relative flex h-16 items-center justify-center border-b border-white/8">
+              <h2 className="text-[20px] font-semibold leading-none tracking-normal text-white">创建或加入域</h2>
               <button
-                onClick={() => setActiveTab('create')}
-                className={cn(
-                  "flex-1 py-3 text-sm font-medium transition-all",
-                  activeTab === 'create'
-                    ? "text-white bg-zinc-800/50 border-b-2 border-indigo-500"
-                    : "text-zinc-400 hover:text-zinc-200"
-                )}
+                type="button"
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  setNewGroupName('');
+                  setJoinInviteCode('');
+                  setJoinError('');
+                }}
+                className="absolute right-4 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-white/8 hover:text-white"
+                aria-label="关闭"
               >
-                Create Server
-              </button>
-              <button
-                onClick={() => setActiveTab('join')}
-                className={cn(
-                  "flex-1 py-3 text-sm font-medium transition-all",
-                  activeTab === 'join'
-                    ? "text-white bg-zinc-800/50 border-b-2 border-indigo-500"
-                    : "text-zinc-400 hover:text-zinc-200"
-                )}
-              >
-                Join Server
+                <X className="h-6 w-6" strokeWidth={1.8} />
               </button>
             </div>
 
-            {/* Content */}
-            <div className="p-5">
-              {activeTab === 'create' ? (
-                <>
-                  <h3 className="text-lg font-bold text-white mb-1">Create a New Server</h3>
-                  <p className="text-sm text-zinc-400 mb-4">Give your server a name to get started.</p>
+            <div className="space-y-3 p-4">
+              <div className="rounded-[18px] border border-white/8 bg-white/5 p-4 shadow-[0_1px_0_rgba(255,255,255,0.03)]">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-400/12 text-indigo-200 ring-1 ring-indigo-400/20">
+                    <Plus className="h-4 w-4" strokeWidth={2.3} />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-[15px] font-medium leading-6 text-white">创建</h3>
+                    <p className="mt-0.5 text-[13px] leading-5 text-zinc-400">自己创建一个域并邀请伙伴加入</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex h-11 items-center rounded-full border border-white/8 bg-black/20 px-4 focus-within:border-indigo-400/50">
                   <input
                     type="text"
                     value={newGroupName}
                     onChange={(e) => setNewGroupName(e.target.value)}
-                    placeholder="Server name"
-                    className="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 mb-4"
+                    placeholder="请输入域名称"
+                    className="min-w-0 flex-1 bg-transparent text-[14px] text-white outline-none placeholder:text-zinc-500"
                     onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()}
                     autoFocus
                   />
-                </>
-              ) : (
-                <>
-                  <h3 className="text-lg font-bold text-white mb-1">Join a Server</h3>
-                  <p className="text-sm text-zinc-400 mb-4">Enter an invite code to join an existing server.</p>
+                  <button
+                    type="button"
+                    onClick={handleCreateGroup}
+                    disabled={!newGroupName.trim()}
+                    className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-indigo-300 transition-colors hover:bg-indigo-400/15 hover:text-white disabled:text-zinc-600"
+                    aria-label="创建域"
+                  >
+                    <Plus className="h-5 w-5" strokeWidth={2.2} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-[18px] border border-white/8 bg-white/5 p-4 shadow-[0_1px_0_rgba(255,255,255,0.03)]">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-400/12 text-sky-200 ring-1 ring-sky-400/20">
+                    <Users className="h-4 w-4" strokeWidth={2.2} />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-[15px] font-medium leading-6 text-white">加入</h3>
+                    <p className="mt-0.5 text-[13px] leading-5 text-zinc-400">输入邀请码/邀请链接进行搜索</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex h-11 items-center rounded-full border border-white/8 bg-black/20 px-4 focus-within:border-sky-400/50">
                   <input
                     type="text"
                     value={joinInviteCode}
-                    onChange={(e) => setJoinInviteCode(e.target.value.toUpperCase())}
-                    placeholder="Invite Code (e.g. ABCD1234EFGH#1)"
-                    className="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 mb-2"
+                    onChange={(e) => {
+                      setJoinInviteCode(e.target.value);
+                      setJoinError('');
+                    }}
+                    placeholder="请输入邀请码/邀请链接"
+                    className="min-w-0 flex-1 bg-transparent text-[14px] text-white outline-none placeholder:text-zinc-500"
                     onKeyDown={(e) => e.key === 'Enter' && handleJoinGroup()}
-                    autoFocus
                   />
-                  {joinError && (
-                    <p className="text-sm text-red-400 mb-2">{joinError}</p>
-                  )}
-                </>
-              )}
-
-              <div className="flex justify-end gap-2 mt-4">
-                <button
-                  onClick={() => {
-                    setIsAddModalOpen(false);
-                    setNewGroupName('');
-                    setJoinInviteCode('');
-                    setJoinError('');
-                  }}
-                  className="px-4 py-2 rounded-lg text-zinc-400 hover:bg-zinc-700/30 transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={activeTab === 'create' ? handleCreateGroup : handleJoinGroup}
-                  disabled={activeTab === 'create' ? !newGroupName.trim() : !joinInviteCode.trim()}
-                  className="px-4 py-2 rounded-lg bg-indigo-500 text-white hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {activeTab === 'create' ? 'Create' : 'Join'}
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleJoinGroup}
+                    disabled={!joinInviteCode.trim()}
+                    className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sky-300 transition-colors hover:bg-sky-400/15 hover:text-white disabled:text-zinc-600"
+                    aria-label="搜索并加入域"
+                  >
+                    <Search className="h-5 w-5" strokeWidth={2.2} />
+                  </button>
+                </div>
+                {joinError && <p className="mt-3 text-[13px] leading-5 text-red-400">{joinError}</p>}
               </div>
             </div>
           </div>
@@ -471,6 +441,18 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
 // Helper function
 function cn(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ');
+}
+
+function normalizeInviteInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  try {
+    const url = new URL(trimmed);
+    const lastSegment = url.pathname.split('/').filter(Boolean).pop() || trimmed;
+    return decodeURIComponent(lastSegment).replace(/_(\d+)$/, '#$1');
+  } catch {
+    return trimmed.replace(/_(\d+)$/, '#$1');
+  }
 }
 
 function TooltipLabel({ text, position }: { text: string; position: { x: number; y: number } }) {

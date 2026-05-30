@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import DirectMessageWorkspace from '@/components/dm/DirectMessageWorkspace';
+import { getStoredToken, getStoredUser } from '@/store/useChatStore';
 
 export default function DirectMessagesPage() {
   const router = useRouter();
@@ -11,23 +12,16 @@ export default function DirectMessagesPage() {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const user = localStorage.getItem('user');
-
-    if (!token) {
+    if (!getStoredToken()) {
       router.push(`/login?redirect=${encodeURIComponent(pathname)}`);
       return;
     }
 
+    const user = getStoredUser();
     if (user) {
-      try {
-        const userData = JSON.parse(user) as { id?: number };
-        if (userData.id && String(userData.id) !== String(params.userId)) {
-          router.replace(`/${userData.id}/dm`);
-          return;
-        }
-      } catch {
-        // Ignore stale local user data; API calls will surface auth problems.
+      if (user.id && String(user.id) !== String(params.userId)) {
+        router.replace(`/${user.id}/dm`);
+        return;
       }
     }
 

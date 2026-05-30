@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Room, RoomEvent, Participant, Track, createLocalAudioTrack } from 'livekit-client';
 import { useChatStore } from '@/store/useChatStore';
+import { useShallow } from 'zustand/react/shallow';
 import { api } from '@/lib/api';
 import { sendWebSocketMessage, onWebSocketMessage } from '@/lib/socket';
 
@@ -44,7 +45,14 @@ type ParticipantMetadata = {
 };
 
 export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
-  const { currentUser, isInCall, joinCall, leaveCall } = useChatStore();
+  const { currentUser, isInCall, joinCall, leaveCall } = useChatStore(
+    useShallow((state) => ({
+      currentUser: state.currentUser,
+      isInCall: state.isInCall,
+      joinCall: state.joinCall,
+      leaveCall: state.leaveCall,
+    }))
+  );
   const [participants, setParticipants] = useState<Map<string, ParticipantData>>(new Map());
   const [callParticipants, setCallParticipants] = useState<CallParticipant[]>([]);
   const [isMuted, setIsMuted] = useState(false);
