@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 import React, { useMemo, useState } from 'react';
 import { History } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';

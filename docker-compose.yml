@@ -150,12 +150,24 @@ services:
       # Kafka
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC_EVENTS: chat.events
+      KAFKA_TOPIC_EMAILS: chat.email.jobs
       KAFKA_CONSUMER_GROUP: ""
       # AI
       AI_API_URL: ${AI_API_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-}
       NEWSNOW_API_URL: ${NEWSNOW_API_URL:-https://newsnow.busiyi.world}
+      # Email verification
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@example.com}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Chatting}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
+      EMAIL_CODE_TTL_MINUTES: ${EMAIL_CODE_TTL_MINUTES:-10}
+      EMAIL_CODE_COOLDOWN_SECONDS: ${EMAIL_CODE_COOLDOWN_SECONDS:-60}
+      EMAIL_QUEUE_SIZE: ${EMAIL_QUEUE_SIZE:-100}
     volumes:
       - backend_uploads:/app/uploads
     ports:

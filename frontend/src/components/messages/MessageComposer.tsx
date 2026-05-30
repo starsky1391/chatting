@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState } from 'react';
+import Image from 'next/image';
 import { ImageUp, Send } from 'lucide-react';
 import { api } from '@/lib/api';
 import MentionMenu from './MentionMenu';
@@ -106,10 +107,13 @@ const MessageComposer: React.FC<MessageComposerProps> = ({
               </button>
             </div>
             <div className="relative max-w-md">
-              <img
+              <Image
                 src={previewImage}
                 alt="Preview"
-                className="max-h-48 object-contain rounded-xl border border-zinc-700"
+                width={384}
+                height={192}
+                unoptimized
+                className="max-h-48 w-auto rounded-xl border border-zinc-700 object-contain"
               />
             </div>
             <div className="flex justify-end gap-2">

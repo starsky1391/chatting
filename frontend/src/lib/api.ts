@@ -14,6 +14,8 @@ type ApiRequestInit = Omit<RequestInit, 'body'> & {
   body?: RequestBody;
 };
 
+type ApiResponsePayload = unknown;
+
 export class ApiError extends Error {
   status: number;
 
@@ -80,20 +82,37 @@ class ApiClient {
     return JSON.stringify(body);
   }
 
-  private async parseResponse(response: Response): Promise<unknown> {
+  private async parseResponse(response: Response): Promise<ApiResponsePayload> {
     if (response.status === 204) {
       return null;
     }
 
     const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      return response.text();
+    const text = await response.text();
+    if (!text) {
+      return null;
     }
 
-    return response.json().catch(() => ({}));
+    if (contentType.includes('application/json')) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        return text;
+      }
+    }
+
+    return text;
   }
 
   private getErrorMessage(payload: unknown, fallback: string): string {
+    if (typeof payload === 'string') {
+      const trimmed = payload.trim();
+      if (!trimmed || trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
+        return fallback;
+      }
+      return trimmed.length > 160 ? fallback : trimmed;
+    }
+
     if (!payload || typeof payload !== 'object') {
       return fallback;
     }
@@ -101,6 +120,22 @@ class ApiClient {
     const record = payload as Record<string, unknown>;
     const message = record.message || record.msg || record.error;
     return typeof message === 'string' && message.trim() ? message : fallback;
+  }
+
+  private getFallbackErrorMessage(response: Response): string {
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      return '服务暂时不可用，请稍后重试';
+    }
+    if (response.status === 500) {
+      return '服务器内部错误，请稍后重试';
+    }
+    if (response.status === 404) {
+      return '请求的接口不存在';
+    }
+    if (response.status === 429) {
+      return '请求太频繁，请稍后再试';
+    }
+    return response.statusText || '请求失败';
   }
 
   private handleUnauthorized(): void {
@@ -126,7 +161,8 @@ class ApiClient {
       }
 
       if (!response.ok) {
-        throw new ApiError(this.getErrorMessage(data, 'Request failed'), response.status);
+        const fallback = this.getFallbackErrorMessage(response);
+        throw new ApiError(this.getErrorMessage(data, fallback), response.status);
       }
 
       if (data && typeof data === 'object' && 'data' in data) {
@@ -135,6 +171,12 @@ class ApiClient {
 
       return data as T;
     } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      if (error instanceof TypeError) {
+        throw new ApiError('无法连接服务器，请检查网络或稍后重试', 0);
+      }
       console.error('API request error:', error);
       throw error;
     }

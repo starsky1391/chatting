@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import AuthHydrator from "@/components/AuthHydrator";
 import VoiceSessionDock from "@/components/voice/VoiceSessionDock";
 import "./globals.css";
 
@@ -15,6 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
+        <AuthHydrator />
         {children}
         <VoiceSessionDock />
       </body>

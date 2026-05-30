@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import { api } from '@/lib/api';
 import { onWebSocketMessage } from '@/lib/socket';
 import type { CallParticipant, Channel } from './types';
@@ -149,9 +150,16 @@ const VoiceChannelNotice: React.FC<VoiceChannelNoticeProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-semibold text-white">
+                  <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-semibold text-white">
                     {participant.avatarUrl ? (
-                      <img src={participant.avatarUrl} alt="" className="h-full w-full object-cover" />
+                      <Image
+                        src={participant.avatarUrl}
+                        alt=""
+                        fill
+                        unoptimized
+                        sizes="40px"
+                        className="object-cover"
+                      />
                     ) : (
                       participant.name.charAt(0).toUpperCase()
                     )}
@@ -174,9 +182,16 @@ const VoiceChannelNotice: React.FC<VoiceChannelNoticeProps> = ({
                 className="rounded-lg border border-gray-700 bg-gray-800 p-3"
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-semibold text-white">
+                  <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-semibold text-white">
                     {participant.avatarUrl ? (
-                      <img src={participant.avatarUrl} alt="" className="h-full w-full object-cover" />
+                      <Image
+                        src={participant.avatarUrl}
+                        alt=""
+                        fill
+                        unoptimized
+                        sizes="40px"
+                        className="object-cover"
+                      />
                     ) : (
                       participant.username.charAt(0).toUpperCase()
                     )}

@@ -61,7 +61,7 @@ ENV NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}
 ENV TURBOPACK_DISABLE_FS_BENCHMARKING=1
 
 # Build with output standalone for smaller image
-RUN npm run build -- --no-turbopack 2>&1 || npm run build 2>&1
+RUN npm run build 2>&1
 
 # Runtime stage
 FROM node:20-alpine AS runner

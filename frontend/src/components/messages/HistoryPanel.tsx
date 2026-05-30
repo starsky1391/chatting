@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import Image from 'next/image';
 import { CalendarDays, Clock3, History, Loader2, RotateCcw, Search, Users, X } from 'lucide-react';
 import { config } from '@/lib/config';
 import type { DisplayMessage, HistoryPreset, MentionMember } from './types';
@@ -64,26 +65,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
   const [historySearching, setHistorySearching] = useState(false);
   const [historyError, setHistoryError] = useState('');
 
-  useEffect(() => {
-    if (!isOpen) return;
-    if (historyResults.length > 0 || historySearching) return;
-    void loadHistoryResults(true);
-  }, [isOpen]);
-
-  useEffect(() => {
-    setHistoryPreset('all');
-    setHistoryQuery('');
-    setHistorySenderId('');
-    setHistoryDate('');
-    setHistoryResults([]);
-    setHistoryOffset(0);
-    setHistoryHasMore(true);
-    setHistoryLoadingMore(false);
-    setHistorySearching(false);
-    setHistoryError('');
-  }, [currentChannelId, setHistoryDate]);
-
-  const getHistoryFilterOptions = (override?: Partial<{ preset: HistoryPreset; date: string; query: string; senderId: string }>) => {
+  const getHistoryFilterOptions = useCallback((override?: Partial<{ preset: HistoryPreset; date: string; query: string; senderId: string }>) => {
     const preset = override?.preset ?? historyPreset;
     const date = override?.date ?? historyDate;
     const query = override?.query ?? historyQuery;
@@ -113,9 +95,9 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
     }
 
     return options;
-  };
+  }, [historyDate, historyPreset, historyQuery, historySenderId]);
 
-  const loadHistoryResults = async (
+  const loadHistoryResults = useCallback(async (
     reset = true,
     override?: Partial<{ preset: HistoryPreset; date: string; query: string; senderId: string }>
   ) => {
@@ -147,7 +129,26 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
       setHistorySearching(false);
       setHistoryLoadingMore(false);
     }
-  };
+  }, [fetchChannelMessages, getHistoryFilterOptions, historyOffset, pageSize]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (historyResults.length > 0 || historySearching) return;
+    void loadHistoryResults(true);
+  }, [historyResults.length, historySearching, isOpen, loadHistoryResults]);
+
+  useEffect(() => {
+    setHistoryPreset('all');
+    setHistoryQuery('');
+    setHistorySenderId('');
+    setHistoryDate('');
+    setHistoryResults([]);
+    setHistoryOffset(0);
+    setHistoryHasMore(true);
+    setHistoryLoadingMore(false);
+    setHistorySearching(false);
+    setHistoryError('');
+  }, [currentChannelId, setHistoryDate]);
 
   const applyHistorySearch = (event?: React.FormEvent) => {
     event?.preventDefault();
@@ -368,12 +369,15 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                           : 'border-zinc-800 bg-zinc-950/60 hover:border-zinc-700 hover:bg-zinc-900'
                       }`}
                     >
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-indigo-500/20 text-xs font-semibold text-indigo-100">
+                      <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-indigo-500/20 text-xs font-semibold text-indigo-100">
                         {message.sender.avatarUrl ? (
-                          <img
+                          <Image
                             src={avatarUrl.startsWith('http') ? avatarUrl : `${config.api.baseUrl}${avatarUrl}`}
                             alt=""
-                            className="h-full w-full object-cover"
+                            fill
+                            unoptimized
+                            sizes="32px"
+                            className="object-cover"
                           />
                         ) : (
                           message.sender.avatar || message.sender.username.charAt(0).toUpperCase()

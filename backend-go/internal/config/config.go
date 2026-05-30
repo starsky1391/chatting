@@ -20,6 +20,7 @@ type Config struct {
 	AllowedOrigins []string
 	Wechat         WechatConfig
 	AI             AIConfig
+	Email          EmailConfig
 }
 
 type WechatConfig struct {
@@ -31,6 +32,19 @@ type AIConfig struct {
 	APIURL string
 	APIKey string
 	Model  string
+}
+
+type EmailConfig struct {
+	SMTPHost            string
+	SMTPPort            int
+	SMTPUsername        string
+	SMTPPassword        string
+	SMTPFrom            string
+	SMTPFromName        string
+	SMTPUseTLS          bool
+	CodeTTLMinutes      int
+	CodeCooldownSeconds int
+	QueueSize           int
 }
 
 type DatabaseConfig struct {
@@ -65,6 +79,7 @@ type KafkaConfig struct {
 	Enabled       bool
 	Brokers       []string
 	TopicEvents   string
+	TopicEmails   string
 	ConsumerGroup string
 }
 
@@ -82,6 +97,10 @@ func Load() (*Config, error) {
 	viper.SetDefault("PORT", "3001")
 	viper.SetDefault("LOG_LEVEL", "info")
 	viper.SetDefault("KAFKA_TOPIC_EVENTS", "chat.events")
+	viper.SetDefault("KAFKA_TOPIC_EMAILS", "chat.email.jobs")
+	viper.SetDefault("EMAIL_CODE_TTL_MINUTES", 10)
+	viper.SetDefault("EMAIL_CODE_COOLDOWN_SECONDS", 60)
+	viper.SetDefault("EMAIL_QUEUE_SIZE", 100)
 
 	// Try to read config file, ignore error if not found
 	_ = viper.ReadInConfig()
@@ -130,6 +149,7 @@ func Load() (*Config, error) {
 	kafkaBrokers := splitCSV(viper.GetString("KAFKA_BROKERS"))
 	cfg.Kafka.Brokers = kafkaBrokers
 	cfg.Kafka.TopicEvents = viper.GetString("KAFKA_TOPIC_EVENTS")
+	cfg.Kafka.TopicEmails = viper.GetString("KAFKA_TOPIC_EMAILS")
 	cfg.Kafka.ConsumerGroup = viper.GetString("KAFKA_CONSUMER_GROUP")
 	if cfg.Kafka.ConsumerGroup == "" {
 		hostname, _ := os.Hostname()
@@ -163,6 +183,37 @@ func Load() (*Config, error) {
 	cfg.AI.APIURL = viper.GetString("AI_API_URL")
 	cfg.AI.APIKey = viper.GetString("AI_API_KEY")
 	cfg.AI.Model = viper.GetString("AI_MODEL")
+
+	// Email verification config. Without SMTP_HOST the backend accepts requests
+	// and logs the code, which keeps local and Docker development usable.
+	cfg.Email.SMTPHost = viper.GetString("SMTP_HOST")
+	cfg.Email.SMTPPort = viper.GetInt("SMTP_PORT")
+	if cfg.Email.SMTPPort == 0 {
+		cfg.Email.SMTPPort = 587
+	}
+	cfg.Email.SMTPUsername = viper.GetString("SMTP_USERNAME")
+	cfg.Email.SMTPPassword = viper.GetString("SMTP_PASSWORD")
+	cfg.Email.SMTPFrom = viper.GetString("SMTP_FROM")
+	if cfg.Email.SMTPFrom == "" {
+		cfg.Email.SMTPFrom = "no-reply@example.com"
+	}
+	cfg.Email.SMTPFromName = viper.GetString("SMTP_FROM_NAME")
+	if cfg.Email.SMTPFromName == "" {
+		cfg.Email.SMTPFromName = "Chatting"
+	}
+	cfg.Email.SMTPUseTLS = viper.GetBool("SMTP_USE_TLS")
+	cfg.Email.CodeTTLMinutes = viper.GetInt("EMAIL_CODE_TTL_MINUTES")
+	if cfg.Email.CodeTTLMinutes <= 0 {
+		cfg.Email.CodeTTLMinutes = 10
+	}
+	cfg.Email.CodeCooldownSeconds = viper.GetInt("EMAIL_CODE_COOLDOWN_SECONDS")
+	if cfg.Email.CodeCooldownSeconds <= 0 {
+		cfg.Email.CodeCooldownSeconds = 60
+	}
+	cfg.Email.QueueSize = viper.GetInt("EMAIL_QUEUE_SIZE")
+	if cfg.Email.QueueSize <= 0 {
+		cfg.Email.QueueSize = 100
+	}
 
 	return cfg, nil
 }

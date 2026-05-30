@@ -39,6 +39,34 @@ func NewRedisClient(cfg config.RedisConfig) (*RedisClient, error) {
 	return &RedisClient{client: client, ctx: ctx}, nil
 }
 
+func (r *RedisClient) Set(key string, value interface{}, ttl time.Duration) error {
+	if r == nil {
+		return nil
+	}
+	return r.client.Set(r.ctx, key, value, ttl).Err()
+}
+
+func (r *RedisClient) SetNX(key string, value interface{}, ttl time.Duration) (bool, error) {
+	if r == nil {
+		return true, nil
+	}
+	return r.client.SetNX(r.ctx, key, value, ttl).Result()
+}
+
+func (r *RedisClient) Get(key string) (string, error) {
+	if r == nil {
+		return "", fmt.Errorf("redis is not configured")
+	}
+	return r.client.Get(r.ctx, key).Result()
+}
+
+func (r *RedisClient) Delete(key string) error {
+	if r == nil {
+		return nil
+	}
+	return r.client.Del(r.ctx, key).Err()
+}
+
 // User online status management with 30 second TTL for heartbeat
 func (r *RedisClient) SetUserOnline(userID uint, username string) error {
 	if r == nil {

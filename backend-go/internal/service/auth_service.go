@@ -2,40 +2,55 @@ package service
 
 import (
 	"errors"
+	"strings"
 	"time"
 
-	"chat-backend/internal/model"
-	"chat-backend/internal/repository"
 	"chat-backend/internal/config"
+	"chat-backend/internal/model"
 	"chat-backend/internal/redis"
+	"chat-backend/internal/repository"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 type AuthService struct {
-	userRepo *repository.UserRepository
-	cfg      *config.Config
-	redis    *redis.RedisClient
+	userRepo  *repository.UserRepository
+	cfg       *config.Config
+	redis     *redis.RedisClient
+	emailCode *EmailVerificationService
 }
 
-func NewAuthService(userRepo *repository.UserRepository, cfg *config.Config, redisClient *redis.RedisClient) *AuthService {
+func NewAuthService(userRepo *repository.UserRepository, cfg *config.Config, redisClient *redis.RedisClient, emailCode *EmailVerificationService) *AuthService {
 	return &AuthService{
-		userRepo: userRepo,
-		cfg:      cfg,
-		redis:    redisClient,
+		userRepo:  userRepo,
+		cfg:       cfg,
+		redis:     redisClient,
+		emailCode: emailCode,
 	}
 }
 
 type RegisterInput struct {
-	Username string `json:"username" binding:"required,min=3,max=50"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
+	Username         string `json:"username" binding:"required,min=3,max=50"`
+	Email            string `json:"email" binding:"required,email"`
+	Password         string `json:"password" binding:"required,min=6"`
+	VerificationCode string `json:"verificationCode" binding:"required,len=6"`
 }
 
 type LoginInput struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`
+}
+
+type PasswordResetCodeInput struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type ResetPasswordInput struct {
+	Email            string `json:"email" binding:"required,email"`
+	VerificationCode string `json:"verificationCode" binding:"required,len=6"`
+	Password         string `json:"password" binding:"required,min=6"`
+	ConfirmPassword  string `json:"confirmPassword" binding:"required,min=6"`
 }
 
 type AuthResponse struct {
@@ -44,6 +59,13 @@ type AuthResponse struct {
 }
 
 func (s *AuthService) Register(input RegisterInput) (*AuthResponse, error) {
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	if s.emailCode != nil {
+		if err := s.emailCode.VerifyRegistrationCode(input.Email, input.VerificationCode); err != nil {
+			return nil, err
+		}
+	}
+
 	// Check if email exists
 	existingUser, err := s.userRepo.FindByEmail(input.Email)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -82,6 +104,10 @@ func (s *AuthService) Register(input RegisterInput) (*AuthResponse, error) {
 		return nil, err
 	}
 
+	if s.emailCode != nil {
+		s.emailCode.ConsumeRegistrationCode(input.Email)
+	}
+
 	// Set online status in Redis
 	if s.redis != nil {
 		s.redis.SetUserOnline(user.ID, user.Username)
@@ -92,7 +118,24 @@ func (s *AuthService) Register(input RegisterInput) (*AuthResponse, error) {
 	}, nil
 }
 
+func (s *AuthService) RequestRegistrationCode(email string) error {
+	if s.emailCode == nil {
+		return errors.New("email verification is unavailable")
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	return s.emailCode.RequestRegistrationCode(email)
+}
+
+func (s *AuthService) RequestPasswordResetCode(email string) error {
+	if s.emailCode == nil {
+		return errors.New("email verification is unavailable")
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	return s.emailCode.RequestPasswordResetCode(email)
+}
+
 func (s *AuthService) Login(input LoginInput) (*AuthResponse, error) {
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
 	// Find user by email
 	user, err := s.userRepo.FindByEmail(input.Email)
 	if err != nil {
@@ -120,6 +163,46 @@ func (s *AuthService) Login(input LoginInput) (*AuthResponse, error) {
 	return &AuthResponse{
 		User: model.ToUserResponse(*user),
 	}, nil
+}
+
+func (s *AuthService) ResetPassword(input ResetPasswordInput) error {
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.Password = strings.TrimSpace(input.Password)
+	input.ConfirmPassword = strings.TrimSpace(input.ConfirmPassword)
+
+	if input.Password != input.ConfirmPassword {
+		return errors.New("passwords do not match")
+	}
+
+	if s.emailCode != nil {
+		if err := s.emailCode.VerifyPasswordResetCode(input.Email, input.VerificationCode); err != nil {
+			return err
+		}
+	}
+
+	user, err := s.userRepo.FindByEmail(input.Email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("email not found")
+		}
+		return err
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	user.Password = string(hashedPassword)
+	if err := s.userRepo.Update(user); err != nil {
+		return err
+	}
+
+	if s.emailCode != nil {
+		s.emailCode.ConsumePasswordResetCode(input.Email)
+	}
+
+	return nil
 }
 
 func (s *AuthService) Logout(userID uint) error {

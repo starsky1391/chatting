@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, Suspense } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useChatStore } from '@/store/useChatStore';
@@ -12,6 +12,16 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [resetNotice, setResetNotice] = useState('');
+  const [sendingResetCode, setSendingResetCode] = useState(false);
+  const [resetCooldown, setResetCooldown] = useState(0);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   interface LoginResponse {
     user: {
@@ -26,6 +36,100 @@ function LoginForm() {
     };
     accessToken: string;
   }
+
+  interface EmailCodeResponse {
+    cooldownSeconds: number;
+  }
+
+  const isResetEmailReady = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resetEmail.trim());
+  const canResetPassword =
+    isResetEmailReady &&
+    resetCode.length === 6 &&
+    resetPassword.length >= 6 &&
+    resetPassword === resetConfirmPassword &&
+    !resettingPassword;
+
+  useEffect(() => {
+    if (resetCooldown <= 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setResetCooldown((value) => Math.max(0, value - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [resetCooldown]);
+
+  const openResetModal = () => {
+    setResetOpen(true);
+    setResetEmail(email);
+    setResetCode('');
+    setResetPassword('');
+    setResetConfirmPassword('');
+    setResetError('');
+    setResetNotice('');
+  };
+
+  const closeResetModal = () => {
+    if (sendingResetCode || resettingPassword) {
+      return;
+    }
+    setResetOpen(false);
+  };
+
+  const handleSendResetCode = async () => {
+    if (!isResetEmailReady || sendingResetCode || resetCooldown > 0) {
+      return;
+    }
+
+    setResetError('');
+    setResetNotice('');
+    setSendingResetCode(true);
+
+    try {
+      const data = await api.post<EmailCodeResponse>('/api/auth/password-reset-code', { email: resetEmail });
+      setResetNotice('Verification code sent. Check your inbox.');
+      setResetCooldown(data.cooldownSeconds || 60);
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'Failed to send verification code.');
+    } finally {
+      setSendingResetCode(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError('');
+    setResetNotice('');
+
+    if (resetPassword !== resetConfirmPassword) {
+      setResetError('Passwords do not match.');
+      return;
+    }
+
+    setResettingPassword(true);
+
+    try {
+      await api.post('/api/auth/reset-password', {
+        email: resetEmail,
+        verificationCode: resetCode,
+        password: resetPassword,
+        confirmPassword: resetConfirmPassword,
+      });
+      setEmail(resetEmail);
+      setPassword('');
+      setResetNotice('Password updated. Sign in with your new password.');
+      setResetCode('');
+      setResetPassword('');
+      setResetConfirmPassword('');
+      window.setTimeout(() => setResetOpen(false), 900);
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'Failed to reset password.');
+    } finally {
+      setResettingPassword(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,9 +215,18 @@ function LoginForm() {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-zinc-300 mb-2">
-                Password
-              </label>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label htmlFor="password" className="text-sm font-medium text-zinc-300">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={openResetModal}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  Forgot password?
+                </button>
+              </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <svg className="w-5 h-5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -171,6 +284,133 @@ function LoginForm() {
           </div>
         </div>
       </div>
+
+      {resetOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-[#11131b] p-6 shadow-2xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Reset password</h2>
+                <p className="mt-1 text-sm text-zinc-400">Use the email code to set a new password.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeResetModal}
+                className="rounded-lg border border-zinc-700 px-2 py-1 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors"
+                aria-label="Close reset password modal"
+              >
+                X
+              </button>
+            </div>
+
+            {resetError && (
+              <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
+                {resetError}
+              </div>
+            )}
+
+            {resetNotice && (
+              <div className="mb-4 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-300">
+                {resetNotice}
+              </div>
+            )}
+
+            <form onSubmit={handleResetPassword} className="space-y-4">
+              <div>
+                <label htmlFor="resetEmail" className="mb-2 block text-sm font-medium text-zinc-300">
+                  Email
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    id="resetEmail"
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    required
+                    className="min-w-0 flex-1 rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-3 text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    placeholder="your@email.com"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendResetCode}
+                    disabled={!isResetEmailReady || sendingResetCode || resetCooldown > 0}
+                    className="shrink-0 rounded-xl border border-indigo-500/40 bg-indigo-500/15 px-4 py-3 text-sm font-medium text-indigo-200 transition-colors hover:bg-indigo-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {sendingResetCode ? 'Sending' : resetCooldown > 0 ? `${resetCooldown}s` : 'Send code'}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="resetCode" className="mb-2 block text-sm font-medium text-zinc-300">
+                  Verification code
+                </label>
+                <input
+                  type="text"
+                  id="resetCode"
+                  value={resetCode}
+                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  required
+                  inputMode="numeric"
+                  maxLength={6}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-3 text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  placeholder="6-digit code"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="resetPassword" className="mb-2 block text-sm font-medium text-zinc-300">
+                  New password
+                </label>
+                <input
+                  type="password"
+                  id="resetPassword"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-3 text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  placeholder="Create a new password"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="resetConfirmPassword" className="mb-2 block text-sm font-medium text-zinc-300">
+                  Repeat password
+                </label>
+                <input
+                  type="password"
+                  id="resetConfirmPassword"
+                  value={resetConfirmPassword}
+                  onChange={(e) => setResetConfirmPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-3 text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  placeholder="Repeat the new password"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={!canResetPassword}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {resettingPassword ? (
+                  <>
+                    <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Updating...
+                  </>
+                ) : (
+                  'Update password'
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

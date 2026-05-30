@@ -57,6 +57,7 @@ export interface ChatState {
   // 用户信息
   currentUser: User | null;
   isAuthenticated: boolean;
+  hydrateAuthFromStorage: () => void;
   login: (user: User, token: string) => void;
   logout: () => void;
   updateCurrentUser: (user: Partial<User>) => void;
@@ -159,6 +160,7 @@ export function clearStoredAuth(): void {
 export const chatStoreSelectors = {
   currentUser: (state: ChatState) => state.currentUser,
   isAuthenticated: (state: ChatState) => state.isAuthenticated,
+  hydrateAuthFromStorage: (state: ChatState) => state.hydrateAuthFromStorage,
   currentChannel: (state: ChatState) => state.currentChannel,
   currentGroupId: (state: ChatState) => state.currentGroupId,
   channels: (state: ChatState) => state.channels,
@@ -177,12 +179,18 @@ export const chatStoreSelectors = {
 
 // 创建 store
 export const useChatStore = create<ChatState>((set) => {
-  const currentUser = getStoredUser();
-
   return {
     // 用户信息
-    currentUser,
-    isAuthenticated: !!currentUser,
+    currentUser: null,
+    isAuthenticated: false,
+
+    hydrateAuthFromStorage: () => {
+      const storedUser = getStoredUser();
+      set({
+        currentUser: storedUser,
+        isAuthenticated: !!storedUser,
+      });
+    },
     
     login: (user, token) => {
       saveStoredAuth(user, token);

@@ -51,6 +51,36 @@ func (c *AuthController) Register(ctx *gin.Context) {
 	response.Created(ctx, result)
 }
 
+func (c *AuthController) SendEmailCode(ctx *gin.Context) {
+	var input service.EmailCodeInput
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+
+	if err := c.authService.RequestRegistrationCode(input.Email); err != nil {
+		response.Error(ctx, 400, err.Error())
+		return
+	}
+
+	response.SuccessWithMessage(ctx, gin.H{"cooldownSeconds": c.cfg.Email.CodeCooldownSeconds}, "Verification code queued")
+}
+
+func (c *AuthController) SendPasswordResetCode(ctx *gin.Context) {
+	var input service.PasswordResetCodeInput
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+
+	if err := c.authService.RequestPasswordResetCode(input.Email); err != nil {
+		response.Error(ctx, 400, err.Error())
+		return
+	}
+
+	response.SuccessWithMessage(ctx, gin.H{"cooldownSeconds": c.cfg.Email.CodeCooldownSeconds}, "Reset code queued")
+}
+
 func (c *AuthController) Login(ctx *gin.Context) {
 	var input service.LoginInput
 	if err := ctx.ShouldBindJSON(&input); err != nil {
@@ -73,6 +103,21 @@ func (c *AuthController) Login(ctx *gin.Context) {
 	result.AccessToken = token
 
 	response.Success(ctx, result)
+}
+
+func (c *AuthController) ResetPassword(ctx *gin.Context) {
+	var input service.ResetPasswordInput
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(ctx, err.Error())
+		return
+	}
+
+	if err := c.authService.ResetPassword(input); err != nil {
+		response.Error(ctx, 400, err.Error())
+		return
+	}
+
+	response.SuccessWithMessage(ctx, nil, "Password updated successfully")
 }
 
 func (c *AuthController) Logout(ctx *gin.Context) {

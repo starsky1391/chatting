@@ -77,7 +77,7 @@ func main() {
 // startOnlineStatusSync runs a background task to sync online status
 func startOnlineStatusSync(db *gorm.DB, redisClient *redis.RedisClient) {
 	userRepo := repository.NewUserRepository(db)
-	authService := service.NewAuthService(userRepo, nil, redisClient)
+	authService := service.NewAuthService(userRepo, nil, redisClient, nil)
 
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()

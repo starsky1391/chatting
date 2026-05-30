@@ -1,16 +1,22 @@
 "use client";
-import React, { useState, Suspense } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useChatStore } from '@/store/useChatStore';
 
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const login = useChatStore((state) => state.login);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [codeCooldown, setCodeCooldown] = useState(0);
 
   interface RegisterResponse {
     user: {
@@ -18,21 +24,66 @@ function RegisterForm() {
       username: string;
       email: string;
       avatar: string;
-      status: string;
-      role: string;
+      avatarUrl?: string;
+      isOnline: boolean;
+      role: 'admin' | 'moderator' | 'member';
+      bio?: string;
     };
     accessToken: string;
   }
 
+  interface EmailCodeResponse {
+    cooldownSeconds: number;
+  }
+
+  const isEmailReady = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  useEffect(() => {
+    if (codeCooldown <= 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setCodeCooldown((value) => Math.max(0, value - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [codeCooldown]);
+
+  const handleSendCode = async () => {
+    if (!isEmailReady || sendingCode || codeCooldown > 0) {
+      return;
+    }
+
+    setError('');
+    setNotice('');
+    setSendingCode(true);
+
+    try {
+      const data = await api.post<EmailCodeResponse>('/api/auth/email-code', { email });
+      setNotice('Verification code sent. Check your inbox.');
+      setCodeCooldown(data.cooldownSeconds || 60);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send verification code.');
+    } finally {
+      setSendingCode(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setNotice('');
     setLoading(true);
 
     try {
-      const data = await api.post<RegisterResponse>('/api/auth/register', { username, email, password });
-      localStorage.setItem('token', data.accessToken);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      const data = await api.post<RegisterResponse>('/api/auth/register', {
+        username,
+        email,
+        password,
+        verificationCode,
+      });
+      login(data.user, data.accessToken);
 
       // Check for redirect parameter
       const redirect = searchParams.get('redirect');
@@ -82,6 +133,15 @@ function RegisterForm() {
             </div>
           )}
 
+          {notice && (
+            <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-sm flex items-center gap-2 animate-fade-in">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              {notice}
+            </div>
+          )}
+
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
@@ -119,20 +179,55 @@ function RegisterForm() {
               <label htmlFor="email" className="block text-sm font-medium text-zinc-300 mb-2">
                 Email Address
               </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1 min-w-0">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <svg className="w-5 h-5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-2.92a.75.75 0 10-1.5 0v1.5a.75.75 0 001.5 0v-1.5z" />
+                    </svg>
+                  </div>
+                  <input
+                    type="email"
+                    id="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className="w-full pl-10 pr-4 py-3 bg-zinc-800/50 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                    placeholder="your@email.com"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSendCode}
+                  disabled={!isEmailReady || sendingCode || codeCooldown > 0}
+                  className="h-12 shrink-0 px-3 rounded-xl border border-indigo-500/40 bg-indigo-500/15 text-sm font-medium text-indigo-200 hover:bg-indigo-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {sendingCode ? 'Sending' : codeCooldown > 0 ? `${codeCooldown}s` : 'Send Code'}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="verificationCode" className="block text-sm font-medium text-zinc-300 mb-2">
+                Verification Code
+              </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <svg className="w-5 h-5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-2.92a.75.75 0 10-1.5 0v1.5a.75.75 0 001.5 0v-1.5z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
                   </svg>
                 </div>
                 <input
-                  type="email"
-                  id="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  type="text"
+                  id="verificationCode"
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   required
+                  inputMode="numeric"
+                  minLength={6}
+                  maxLength={6}
                   className="w-full pl-10 pr-4 py-3 bg-zinc-800/50 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                  placeholder="your@email.com"
+                  placeholder="6-digit code"
                 />
               </div>
             </div>

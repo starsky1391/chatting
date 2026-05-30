@@ -57,7 +57,8 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 	directMessageRepo := repository.NewDirectMessageRepository(db)
 
 	// Initialize services
-	authService := service.NewAuthService(userRepo, cfg, redisClient)
+	emailVerificationService := service.NewEmailVerificationService(userRepo, cfg.Email, cfg.Kafka, redisClient)
+	authService := service.NewAuthService(userRepo, cfg, redisClient, emailVerificationService)
 	aiService := service.NewAIService(cfg.AI)
 	groupService := service.NewChannelGroupService(groupRepo, channelRepo, userRepo, userGroupRepo, groupRoleRepo, aiConfigRepo, redisClient)
 	messageService := service.NewMessageService(messageRepo, userRepo, channelRepo, userGroupRepo, aiConfigRepo, aiService, eventPublisher)
@@ -114,6 +115,9 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 		// Auth routes (public)
 		auth := api.Group("/auth")
 		{
+			auth.POST("/email-code", authController.SendEmailCode)
+			auth.POST("/password-reset-code", authController.SendPasswordResetCode)
+			auth.POST("/reset-password", authController.ResetPassword)
 			auth.POST("/register", authController.Register)
 			auth.POST("/login", authController.Login)
 			auth.POST("/wechat/login", wechatController.Login)

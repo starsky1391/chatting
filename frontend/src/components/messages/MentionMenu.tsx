@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import Image from 'next/image';
 import { AtSign } from 'lucide-react';
 import { config } from '@/lib/config';
 import type { MentionMember } from './types';
@@ -38,14 +39,17 @@ const MentionMenu: React.FC<MentionMenuProps> = ({
                 activeIndex === index ? 'bg-indigo-500/20 text-white' : 'text-zinc-300 hover:bg-zinc-800'
               }`}
             >
-              <div className={`flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-md text-xs font-semibold ${
+              <div className={`relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-md text-xs font-semibold ${
                 isBot ? 'bg-green-500/20 text-green-300' : 'bg-indigo-500/20 text-indigo-200'
               }`}>
                 {member.avatarUrl ? (
-                  <img
+                  <Image
                     src={avatarUrl.startsWith('http') ? avatarUrl : `${config.api.baseUrl}${avatarUrl}`}
                     alt=""
-                    className="h-full w-full object-cover"
+                    fill
+                    unoptimized
+                    sizes="28px"
+                    className="object-cover"
                   />
                 ) : (
                   member.avatar || member.username.charAt(0).toUpperCase()
