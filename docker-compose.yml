@@ -239,7 +239,12 @@ services:
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl
       - nginx_logs:/var/log/nginx
+    environment:
+      NGINX_SSL_MODE: ${NGINX_SSL_MODE:-auto}
+      NGINX_SSL_CERT_FILE: ${NGINX_SSL_CERT_FILE:-/etc/nginx/ssl/nginx.crt}
+      NGINX_SSL_KEY_FILE: ${NGINX_SSL_KEY_FILE:-/etc/nginx/ssl/nginx.key}
     ports:
       - "${NGINX_HTTP_PORT:-8080}:80"
       - "${NGINX_HTTPS_PORT:-8443}:443"

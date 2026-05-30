@@ -271,6 +271,9 @@ NEXT_PUBLIC_SOCKET_URL=
 # Nginx Configuration
 NGINX_HTTP_PORT=8080
 NGINX_HTTPS_PORT=8443
+NGINX_SSL_MODE=auto
+NGINX_SSL_CERT_FILE=/etc/nginx/ssl/nginx.crt
+NGINX_SSL_KEY_FILE=/etc/nginx/ssl/nginx.key
 
 # Build Configuration
 NPM_REGISTRY=${NPM_REGISTRY}
@@ -366,6 +369,7 @@ show_status() {
     print_msg "Access the application at:" "$BLUE"
     print_msg "  HTTP:  http://localhost:${NGINX_HTTP_PORT:-8080}" "$BLUE"
     print_msg "  HTTPS: https://localhost:${NGINX_HTTPS_PORT:-8443}" "$BLUE"
+    print_warning "HTTPS uses a self-signed certificate until NGINX_SSL_MODE=provided is configured with a real cert."
     echo ""
     print_msg "Management interfaces:" "$BLUE"
     print_msg "  RabbitMQ: http://localhost:${RABBITMQ_MGMT_PORT:-15672}" "$BLUE"

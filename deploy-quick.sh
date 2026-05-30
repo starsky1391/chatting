@@ -75,6 +75,9 @@ CORS_ORIGIN=*
 BACKEND_PORT=3001
 NGINX_HTTP_PORT=8080
 NGINX_HTTPS_PORT=8443
+NGINX_SSL_MODE=auto
+NGINX_SSL_CERT_FILE=/etc/nginx/ssl/nginx.crt
+NGINX_SSL_KEY_FILE=/etc/nginx/ssl/nginx.key
 
 # Frontend
 NEXT_PUBLIC_API_URL=/api
@@ -105,6 +108,7 @@ echo ""
 echo -e "${BLUE}Access your application at:${NC}"
 echo -e "  HTTP:  ${GREEN}http://localhost:8080${NC}"
 echo -e "  HTTPS: ${GREEN}https://localhost:8443${NC}"
+echo -e "${YELLOW}Note: HTTPS uses a self-signed certificate until you switch NGINX_SSL_MODE=provided with a real cert.${NC}"
 echo ""
 echo -e "${YELLOW}RabbitMQ Management:${NC}"
 echo -e "  ${GREEN}http://localhost:15672${NC}"

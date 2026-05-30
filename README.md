@@ -54,6 +54,8 @@ docker compose up -d
 - HTTPS: `https://localhost:8443`
 - 后端健康检查: `http://localhost:3001/health`
 
+Docker 默认 HTTPS 是自签证书，只适合本地测试。服务器部署请给 nginx 配置真实域名证书，并把 `.env` 中 `NGINX_SSL_MODE` 改成 `provided`，否则浏览器会拦截 HTTPS 请求并报 `ERR_CERT_AUTHORITY_INVALID`。
+
 如果需要重新构建某个服务，优先只构建受影响容器：
 
 ```bash

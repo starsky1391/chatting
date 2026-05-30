@@ -46,6 +46,7 @@ ADMIN_PASSWORD=change-this-admin-password
 
 NGINX_HTTP_PORT=8080
 NGINX_HTTPS_PORT=8443
+NGINX_SSL_MODE=auto
 NEXT_PUBLIC_API_URL=/api
 NEXT_PUBLIC_SOCKET_URL=
 ```
@@ -87,7 +88,32 @@ docker compose ps
 - HTTP: `http://服务器IP:8080`
 - HTTPS: `https://服务器IP:8443`
 
-如果浏览器提示自签名证书不安全，开发/演示环境可以继续访问；生产环境应替换为正式证书。
+默认 HTTPS 会生成自签名证书，只适合本地和演示环境。生产环境如果用服务器 HTTPS 登录时出现 `ERR_CERT_AUTHORITY_INVALID`，请求还没到后端，浏览器已经因为证书不可信拦截了。
+
+### 生产 HTTPS 证书
+
+生产环境建议使用域名访问，不要直接用 `https://服务器IP:8443`。用 Let's Encrypt、云厂商证书或其他可信 CA 申请和域名匹配的证书后，把证书放到：
+
+```text
+docker/nginx/ssl/nginx.crt
+docker/nginx/ssl/nginx.key
+```
+
+`nginx.crt` 应使用完整证书链，例如 Let's Encrypt 的 `fullchain.pem`；`nginx.key` 使用私钥，例如 `privkey.pem`。然后在 `.env` 设置：
+
+```env
+NGINX_SSL_MODE=provided
+NGINX_SSL_CERT_FILE=/etc/nginx/ssl/nginx.crt
+NGINX_SSL_KEY_FILE=/etc/nginx/ssl/nginx.key
+```
+
+重启 nginx：
+
+```bash
+docker compose up -d --force-recreate nginx
+```
+
+如果 `NGINX_SSL_MODE=provided` 但证书文件缺失，nginx 容器会直接启动失败，避免服务器继续误用自签证书。
 
 ## 按服务更新
 
@@ -254,6 +280,22 @@ docker compose logs nginx --tail=200
 ```
 
 如果后端反复重启，优先看数据库密码、Redis 密码和 Kafka 是否健康。
+
+### HTTPS 证书不可信
+
+如果浏览器控制台出现：
+
+```text
+net::ERR_CERT_AUTHORITY_INVALID
+```
+
+这不是登录接口或后端鉴权问题，而是服务器证书不被浏览器信任。确认：
+
+- 访问地址使用的是证书绑定的域名，而不是服务器 IP。
+- `docker/nginx/ssl/nginx.crt` 是完整证书链。
+- `docker/nginx/ssl/nginx.key` 和证书匹配。
+- `.env` 中 `NGINX_SSL_MODE=provided`。
+- 修改证书后执行 `docker compose up -d --force-recreate nginx`。
 
 ### 后端数据库认证失败
 
