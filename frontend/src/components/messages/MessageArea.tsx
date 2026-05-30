@@ -1,5 +1,5 @@
 "use client";
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { History } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import MessageBubble from './MessageBubble';
@@ -12,6 +12,13 @@ import { useChannelMessages } from '@/hooks/useChannelMessages';
 import { useMentionInput } from '@/hooks/useMentionInput';
 import { useVirtualMessageWindow } from '@/hooks/useVirtualMessageWindow';
 import type { Channel, MentionMember } from './types';
+
+const RECALL_WINDOW_MS = 30_000;
+
+const isMessageRecallable = (message: { isOwn?: boolean; createdAt?: string | Date }, now: number) => {
+  if (!message.isOwn || !message.createdAt) return false;
+  return now - new Date(message.createdAt).getTime() < RECALL_WINDOW_MS;
+};
 
 interface MessageAreaProps {
   currentChannel: Channel | null;
@@ -53,6 +60,7 @@ const MessageArea: React.FC<MessageAreaProps> = ({
   );
 
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+  const [recallNow, setRecallNow] = useState(() => Date.now());
 
   const members = useMemo(() => groupMembers as MentionMember[], [groupMembers]);
 
@@ -113,6 +121,25 @@ const MessageArea: React.FC<MessageAreaProps> = ({
     items: messages,
     containerRef: messageListRef,
   });
+
+  useEffect(() => {
+    if (!messages.some((message) => isMessageRecallable(message, Date.now()))) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      const currentNow = Date.now();
+      setRecallNow(currentNow);
+
+      if (!messages.some((message) => isMessageRecallable(message, currentNow))) {
+        window.clearInterval(timer);
+      }
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [messages]);
 
   if (!currentChannel) {
     return (
@@ -220,21 +247,21 @@ const MessageArea: React.FC<MessageAreaProps> = ({
             ) : messages.length > 0 ? (
               <>
                 {isVirtualized && topPadding > 0 && <div style={{ height: topPadding }} aria-hidden="true" />}
-                {visibleMessages.map(({ item: message, index }) => (
+                {visibleMessages.map(({ item: message }) => (
                   <div
                     key={message.id}
                     ref={(node) => {
                       messageRefs.current[message.id] = node;
                     }}
-                    className={`animate-fade-in rounded-xl transition-all ${
+                    className={`rounded-xl transition-all ${
                       highlightMessageId === message.id ? 'bg-indigo-500/10 ring-1 ring-indigo-400/50' : ''
                     }`}
-                    style={{ animationDelay: `${Math.min(index, 10) * 0.03}s` }}
                   >
                     <MessageBubble
                       message={message}
                       onRecall={onRecallMessage}
                       onMentionUser={mentionInput.insertMentionByUsername}
+                      now={isMessageRecallable(message, recallNow) ? recallNow : undefined}
                     />
                   </div>
                 ))}

@@ -19,6 +19,10 @@ import {
 } from '@/lib/socket';
 import { Search, Users } from 'lucide-react';
 
+const MEMBER_REFRESH_INTERVAL_MS = 60_000;
+
+const isPageVisible = () => typeof document === 'undefined' || !document.hidden;
+
 const MainLayout: React.FC = () => {
   const currentUser = useChatStore((state) => state.currentUser);
   const currentChannel = useChatStore((state) => state.currentChannel);
@@ -338,6 +342,7 @@ const MainLayout: React.FC = () => {
     if (!currentChannel?.id) { setMembers([]); return; }
     const fetchChannelMembers = async () => {
       try {
+        if (!isPageVisible()) return;
         if (!getStoredToken()) return;
 
         const membersData = await api.get<SocketUserPayload[]>(`/api/channels/${currentChannel.id}/active-members`);
@@ -359,14 +364,22 @@ const MainLayout: React.FC = () => {
       }
     };
     fetchChannelMembers();
-    const interval = setInterval(fetchChannelMembers, 30000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchChannelMembers, MEMBER_REFRESH_INTERVAL_MS);
+    const handleVisibilityChange = () => {
+      if (isPageVisible()) void fetchChannelMembers();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [currentChannel, setMembers]);
 
   // Fetch group members
   useEffect(() => {
     const fetchMembers = async () => {
       try {
+        if (!isPageVisible()) return;
         if (!getStoredToken()) { setGroupMembers([]); return; }
 
         if (currentGroupId) {
@@ -381,9 +394,16 @@ const MainLayout: React.FC = () => {
     };
     fetchMembers();
 
-    // Poll for member updates every 15 seconds to refresh online status
-    const interval = setInterval(fetchMembers, 15000);
-    return () => clearInterval(interval);
+    // WebSocket covers fast presence updates; polling is a slower reconciliation pass.
+    const interval = setInterval(fetchMembers, MEMBER_REFRESH_INTERVAL_MS);
+    const handleVisibilityChange = () => {
+      if (isPageVisible()) void fetchMembers();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [currentGroupId, setGroupMembers]);
 
   // Fetch channels
@@ -404,7 +424,7 @@ const MainLayout: React.FC = () => {
   }, [setChannels]);
 
   // Send message
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = useCallback(async (content: string) => {
     try {
       if (!currentChannel) return;
       const channelId = Number(currentChannel.id);
@@ -428,16 +448,16 @@ const MainLayout: React.FC = () => {
     } catch (error) {
       console.error('Error sending message:', error);
     }
-  };
+  }, [addMessage, currentChannel, currentUser]);
 
-  const handleRecallMessage = async (messageId: number) => {
+  const handleRecallMessage = useCallback(async (messageId: number) => {
     if (!currentChannel) return;
     const channelId = Number(currentChannel.id);
     if (!channelId || isNaN(channelId)) return;
 
     await api.delete(`/api/channels/${channelId}/messages/${messageId}`);
     removeMessage(messageId);
-  };
+  }, [currentChannel, removeMessage]);
 
   // Get channel header title
   const getHeaderTitle = () => {

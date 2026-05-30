@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { ImageUp, Send } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -39,19 +39,33 @@ const MessageComposer: React.FC<MessageComposerProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setPreviewImage(event.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    setPreviewImage((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+      return URL.createObjectURL(file);
+    });
   };
 
   const handleCancelPreview = () => {
-    setPreviewImage(null);
+    setPreviewImage((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+      return null;
+    });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (previewImage) {
+        URL.revokeObjectURL(previewImage);
+      }
+    };
+  }, [previewImage]);
 
   const uploadImage = async (file: File): Promise<string | null> => {
     try {
@@ -77,10 +91,7 @@ const MessageComposer: React.FC<MessageComposerProps> = ({
       if (imageUrl) {
         onBeforeSend?.();
         onSendMessage(imageUrl);
-        setPreviewImage(null);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
+        handleCancelPreview();
       }
     } catch (error) {
       console.error('发送图片错误:', error);
@@ -113,6 +124,7 @@ const MessageComposer: React.FC<MessageComposerProps> = ({
                 width={384}
                 height={192}
                 className="max-h-48 w-auto rounded-xl border border-zinc-700 object-contain"
+                unoptimized
               />
             </div>
             <div className="flex justify-end gap-2">

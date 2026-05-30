@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef, useState, KeyboardEvent } from 'react';
+import React, { memo, useEffect, useRef, useState, KeyboardEvent } from 'react';
 import Image from 'next/image';
 import ReactMarkdown from 'react-markdown';
 import { config } from '@/lib/config';
@@ -28,15 +28,46 @@ interface MessageBubbleProps {
   message: Message;
   onRecall?: (messageId: number) => Promise<void>;
   onMentionUser?: (username: string) => void;
+  now?: number;
 }
 
 const emphasizeMentions = (content: string) => (
   content.replace(/(^|[\s(])@([^\s@.,:;!?，。！？、)]+)/g, '$1**@$2**')
 );
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMentionUser }) => {
+const shouldRenderMarkdown = (content: string) => (
+  /(\*\*|__|~~|`|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|\[[^\]]+\]\([^)]+\))/m.test(content)
+);
+
+const renderPlainTextWithMentions = (content: string) => {
+  const nodes: React.ReactNode[] = [];
+  const pattern = /(^|[\s(])@([^\s@.,:;!?，。！？、)]+)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(content))) {
+    const [fullMatch, prefix, username] = match;
+    if (match.index > lastIndex) {
+      nodes.push(content.slice(lastIndex, match.index));
+    }
+    nodes.push(
+      <React.Fragment key={`${match.index}-${username}`}>
+        {prefix}
+        <span className="font-semibold text-sky-300">@{username}</span>
+      </React.Fragment>
+    );
+    lastIndex = match.index + fullMatch.length;
+  }
+
+  if (lastIndex < content.length) {
+    nodes.push(content.slice(lastIndex));
+  }
+
+  return nodes.length > 0 ? nodes : content;
+};
+
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMentionUser, now }) => {
   const { menu, openUserMenu, openUserMenuAtElement, closeUserMenu } = useUserContextMenu();
-  const [now, setNow] = useState(() => Date.now());
   const [isRecalling, setIsRecalling] = useState(false);
   const [recallError, setRecallError] = useState('');
   const avatarClickTimerRef = useRef<number | null>(null);
@@ -56,7 +87,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
   };
 
   const messageDate = typeof safeMessage.createdAt === 'string' ? new Date(safeMessage.createdAt) : safeMessage.createdAt;
-  const recallSecondsLeft = Math.max(0, Math.ceil((messageDate.getTime() + 30_000 - now) / 1000));
+  const recallSecondsLeft = Math.max(0, Math.ceil((messageDate.getTime() + 30_000 - (now ?? Date.now())) / 1000));
   const canRecall = Boolean(onRecall && safeMessage.isOwn && safeMessage.id && recallSecondsLeft > 0);
 
   const isImageMessage = safeMessage.content.body.startsWith('image:') || safeMessage.content.body.startsWith('/uploads/');
@@ -68,12 +99,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
   const [isImageExpanded, setIsImageExpanded] = useState(false);
 
   const closeImageModal = () => setIsImageExpanded(false);
-
-  useEffect(() => {
-    if (!safeMessage.isOwn || recallSecondsLeft <= 0) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [safeMessage.isOwn, recallSecondsLeft]);
 
   useEffect(() => {
     return () => {
@@ -255,9 +280,15 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
               : 'bg-zinc-700 text-zinc-200'
           }`}>
             <div className="prose prose-sm prose-invert max-w-none">
-              <ReactMarkdown>
-                {emphasizeMentions(safeMessage.content.body || 'No content')}
-              </ReactMarkdown>
+              {shouldRenderMarkdown(safeMessage.content.body || '') ? (
+                <ReactMarkdown>
+                  {emphasizeMentions(safeMessage.content.body || 'No content')}
+                </ReactMarkdown>
+              ) : (
+                <span className="whitespace-pre-wrap break-words">
+                  {renderPlainTextWithMentions(safeMessage.content.body || 'No content')}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -284,4 +315,4 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
   );
 };
 
-export default MessageBubble;
+export default memo(MessageBubble);

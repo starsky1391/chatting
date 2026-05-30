@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Headphones, Loader2, Mic, MicOff, PhoneOff, Radio, Volume2 } from 'lucide-react';
-import { LocalAudioTrack, Participant, Room, RoomEvent, Track } from 'livekit-client';
+import type { LocalAudioTrack, Participant, Room } from 'livekit-client';
 import { api } from '@/lib/api';
 import { connectWebSocket, onWebSocketMessage, sendWebSocketMessage } from '@/lib/socket';
 import { useChatStore, type VoiceNoiseMode } from '@/store/useChatStore';
@@ -47,6 +47,17 @@ const voiceNoiseModes: Array<{ value: VoiceNoiseMode; label: string; title: stri
   { value: 'browser_processing', label: '不处理', title: '不做额外处理，使用浏览器自带音频处理' },
   { value: 'custom_denoise', label: '降噪', title: '开启自适应噪声门和语音增强链路' },
 ];
+
+type LiveKitModule = typeof import('livekit-client');
+
+let liveKitModulePromise: Promise<LiveKitModule> | null = null;
+
+const loadLiveKit = () => {
+  if (!liveKitModulePromise) {
+    liveKitModulePromise = import('livekit-client');
+  }
+  return liveKitModulePromise;
+};
 
 function parseMetadata(metadata?: string): ParticipantMetadata {
   if (!metadata) return {};
@@ -231,7 +242,7 @@ export default function VoiceSessionDock() {
     remoteAudioElementsRef.current.clear();
   }, []);
 
-  const createProcessedAudioTrack = useCallback(async (): Promise<ProcessedAudio> => {
+  const createProcessedAudioTrack = useCallback(async (livekit: LiveKitModule): Promise<ProcessedAudio> => {
     const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
     const audioContext = new AudioContextConstructor();
     if (audioContext.audioWorklet) {
@@ -274,8 +285,8 @@ export default function VoiceSessionDock() {
     gainNode.connect(destination);
 
     const mediaTrack = destination.stream.getAudioTracks()[0];
-    const track = new LocalAudioTrack(mediaTrack, undefined, true, audioContext);
-    track.source = Track.Source.Microphone;
+    const track = new livekit.LocalAudioTrack(mediaTrack, undefined, true, audioContext);
+    track.source = livekit.Track.Source.Microphone;
     return { track, sourceStream, audioContext, gainNode, denoiseNode };
   }, [inputVolume, noiseMode]);
 
@@ -323,6 +334,8 @@ export default function VoiceSessionDock() {
       await connectWebSocket().catch(() => {});
       const roomName = `channel-${channel.id}`;
       const { token, livekitUrl } = await getToken(roomName);
+      const livekit = await loadLiveKit();
+      const { Room, RoomEvent, Track } = livekit;
       const room = new Room({ adaptiveStream: true, dynacast: true });
       roomRef.current = room;
 
@@ -358,7 +371,7 @@ export default function VoiceSessionDock() {
 
       await room.connect(livekitUrl, token);
 
-      const processedAudio = await createProcessedAudioTrack();
+      const processedAudio = await createProcessedAudioTrack(livekit);
       localAudioTrackRef.current = processedAudio.track;
       sourceStreamRef.current = processedAudio.sourceStream;
       audioContextRef.current = processedAudio.audioContext;
