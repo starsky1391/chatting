@@ -1,4 +1,7 @@
 services:
+  kafka:
+    image: mirror.ccs.tencentyun.com/redpandadata/redpanda:v24.2.8
+
   backend:
     build:
       args:
