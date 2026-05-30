@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import AuthHydrator from "@/components/AuthHydrator";
+import RealtimeSoundNotifications from "@/components/notifications/RealtimeSoundNotifications";
 import VoiceSessionDock from "@/components/voice/VoiceSessionDock";
 import "./globals.css";
 
@@ -18,6 +19,7 @@ export default function RootLayout({
       <body className="antialiased">
         <AuthHydrator />
         {children}
+        <RealtimeSoundNotifications />
         <VoiceSessionDock />
       </body>
     </html>

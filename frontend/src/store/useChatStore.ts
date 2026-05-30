@@ -120,6 +120,10 @@ export interface ChatState {
   setVoiceNoiseMode: (mode: VoiceNoiseMode) => void;
   setVoiceError: (error: string | null) => void;
   requestJoinVoiceChannel: (channel: Channel) => void;
+
+  // 私信相关
+  activeDirectConversationId: number | null;
+  setActiveDirectConversationId: (conversationId: number | null) => void;
   
   // 侧边栏状态
   isSidebarOpen: boolean;
@@ -243,7 +247,8 @@ export const useChatStore = create<ChatState>((set) => {
         voiceIsMuted: false,
         voiceIsDeafened: false,
         voiceError: null,
-        voiceJoinRequest: null
+        voiceJoinRequest: null,
+        activeDirectConversationId: null
       });
     },
     
@@ -409,6 +414,10 @@ export const useChatStore = create<ChatState>((set) => {
     },
     setVoiceError: (error) => set({ voiceError: error }),
     requestJoinVoiceChannel: (channel) => set({ voiceJoinRequest: { channel, nonce: Date.now() } }),
+
+    // 私信相关
+    activeDirectConversationId: null,
+    setActiveDirectConversationId: (conversationId) => set({ activeDirectConversationId: conversationId }),
     
     // 侧边栏状态
     isSidebarOpen: true,

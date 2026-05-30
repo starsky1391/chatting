@@ -83,6 +83,7 @@ export default function DirectMessageWorkspace() {
   const currentUser = useChatStore((state) => state.currentUser);
   const setCurrentGroupId = useChatStore((state) => state.setCurrentGroupId);
   const setCurrentChannel = useChatStore((state) => state.setCurrentChannel);
+  const setActiveDirectConversationId = useChatStore((state) => state.setActiveDirectConversationId);
 
   const [activeTab, setActiveTab] = useState<'messages' | 'friends'>('messages');
   const [friends, setFriends] = useState<Friendship[]>([]);
@@ -133,7 +134,12 @@ export default function DirectMessageWorkspace() {
 
   useEffect(() => {
     selectedConversationIDRef.current = selectedConversation?.id || null;
-  }, [selectedConversation?.id]);
+    setActiveDirectConversationId(selectedConversation?.id || null);
+    return () => {
+      selectedConversationIDRef.current = null;
+      setActiveDirectConversationId(null);
+    };
+  }, [selectedConversation?.id, setActiveDirectConversationId]);
 
   useEffect(() => {
     if (!getStoredToken()) return;
