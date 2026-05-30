@@ -60,7 +60,11 @@ const MENU_GAP = 8;
 const OPEN_MENU_EVENT = 'chat:user-context-menu-open';
 
 function getAvatarUrl(user: ContextMenuUser) {
-  return config.api.imageUrl(user.avatarUrl);
+  return config.api.avatarThumbUrl(user.avatarUrl, 40);
+}
+
+function getProfileAvatarUrl(user: ContextMenuUser) {
+  return config.api.avatarThumbUrl(user.avatarUrl, 96);
 }
 
 function getInitial(user: ContextMenuUser) {
@@ -297,6 +301,7 @@ export function UserContextMenu({
                 fill
                 sizes="40px"
                 className="object-cover"
+                unoptimized
               />
             ) : getInitial(user)}
             <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#18181b] ${user.isOnline ? 'bg-green-500' : 'bg-zinc-500'}`} />
@@ -354,13 +359,14 @@ export function UserContextMenu({
               <div className="flex items-end justify-between">
                 <div className="-mt-12">
                   <div className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-4 border-[#1b1b1d] bg-amber-100 text-3xl font-semibold text-zinc-900 shadow-xl">
-                    {getAvatarUrl(profileUser) ? (
+                    {getProfileAvatarUrl(profileUser) ? (
                       <Image
-                        src={getAvatarUrl(profileUser)}
+                        src={getProfileAvatarUrl(profileUser)}
                         alt={profileUser.username}
                         fill
                         sizes="96px"
                         className="object-cover"
+                        unoptimized
                       />
                     ) : (
                       getInitial(profileUser)

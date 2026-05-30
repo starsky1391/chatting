@@ -548,11 +548,12 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
         <div className="relative w-full h-full bg-zinc-800 flex items-center justify-center">
           {participant.avatarUrl ? (
             <Image
-              src={config.api.imageUrl(participant.avatarUrl)}
+              src={config.api.avatarThumbUrl(participant.avatarUrl, 96)}
               alt={participant.username}
               fill
               sizes="96px"
               className="object-cover"
+              unoptimized
             />
           ) : (
             <span className="text-3xl font-bold text-zinc-400">

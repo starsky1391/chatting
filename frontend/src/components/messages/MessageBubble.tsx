@@ -143,11 +143,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
     if (safeMessage.sender.avatarUrl) {
       return (
         <Image
-          src={config.api.imageUrl(safeMessage.sender.avatarUrl)}
+          src={config.api.avatarThumbUrl(safeMessage.sender.avatarUrl, 40)}
           alt={safeMessage.sender.username}
           fill
           sizes="40px"
           className="object-cover"
+          unoptimized
         />
       );
     }

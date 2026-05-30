@@ -31,11 +31,28 @@ const getImageUrl = (path?: string): string => {
   return path;
 };
 
+const AVATAR_THUMBNAIL_WIDTHS = [32, 48, 64, 96, 128];
+
+const getAvatarThumbnailWidth = (size: number): number => (
+  AVATAR_THUMBNAIL_WIDTHS.find((width) => width >= size) || AVATAR_THUMBNAIL_WIDTHS[AVATAR_THUMBNAIL_WIDTHS.length - 1]
+);
+
+const getAvatarThumbnailUrl = (path?: string, size = 48, quality = 75): string => {
+  const imageUrl = getImageUrl(path);
+  if (!imageUrl || imageUrl.startsWith('data:') || imageUrl.startsWith('blob:') || imageUrl.startsWith('/_next/image')) {
+    return imageUrl;
+  }
+
+  const width = getAvatarThumbnailWidth(size);
+  return `/_next/image?url=${encodeURIComponent(imageUrl)}&w=${width}&q=${quality}`;
+};
+
 export const config = {
   api: {
     baseUrl: API_URL,
     imageBaseUrl: IMAGE_URL,
     imageUrl: getImageUrl,
+    avatarThumbUrl: getAvatarThumbnailUrl,
     socketUrl: getSocketUrl(API_URL)
   },
 

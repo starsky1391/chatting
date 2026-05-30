@@ -143,11 +143,12 @@ export default function ProfilePage() {
               <div className="relative w-24 h-24 rounded-2xl gradient-bg flex items-center justify-center text-4xl font-bold shadow-xl overflow-hidden">
                 {profile?.avatarUrl ? (
                   <Image
-                    src={config.api.imageUrl(profile.avatarUrl)}
+                    src={config.api.avatarThumbUrl(profile.avatarUrl, 96)}
                     alt="Avatar"
                     fill
                     sizes="96px"
                     className="object-cover"
+                    unoptimized
                   />
                 ) : (
                   profile?.avatar || profile?.username?.charAt(0)?.toUpperCase() || 'U'

@@ -612,11 +612,12 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
                           <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-indigo-500/20 text-sm font-semibold text-white">
                             {getAssetUrl(member.avatarUrl) ? (
                               <Image
-                                src={getAssetUrl(member.avatarUrl)}
+                                src={config.api.avatarThumbUrl(member.avatarUrl, 36)}
                                 alt={member.username}
                                 fill
                                 sizes="36px"
                                 className="object-cover"
+                                unoptimized
                               />
                             ) : (
                               member.avatar || member.username.charAt(0).toUpperCase()

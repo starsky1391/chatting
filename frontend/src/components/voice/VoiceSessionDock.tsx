@@ -5,7 +5,7 @@ import { Headphones, Loader2, Mic, MicOff, PhoneOff, Radio, Volume2 } from 'luci
 import { LocalAudioTrack, Participant, Room, RoomEvent, Track } from 'livekit-client';
 import { api } from '@/lib/api';
 import { connectWebSocket, onWebSocketMessage, sendWebSocketMessage } from '@/lib/socket';
-import { useChatStore } from '@/store/useChatStore';
+import { useChatStore, type VoiceNoiseMode } from '@/store/useChatStore';
 
 type VoiceChannel = {
   id: number;
@@ -40,7 +40,13 @@ type ProcessedAudio = {
   sourceStream: MediaStream;
   audioContext: AudioContext;
   gainNode: GainNode;
+  denoiseNode: AudioWorkletNode | null;
 };
+
+const voiceNoiseModes: Array<{ value: VoiceNoiseMode; label: string; title: string }> = [
+  { value: 'browser_processing', label: '不处理', title: '不做额外处理，使用浏览器自带音频处理' },
+  { value: 'custom_denoise', label: '降噪', title: '开启自适应噪声门和语音增强链路' },
+];
 
 function parseMetadata(metadata?: string): ParticipantMetadata {
   if (!metadata) return {};
@@ -61,6 +67,18 @@ function buttonClass(active = false, danger = false) {
   return 'flex h-11 w-11 items-center justify-center rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700';
 }
 
+function getBrowserAudioConstraints(): MediaTrackConstraints {
+  return {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: false,
+  };
+}
+
+function getAudioConstraints(): MediaTrackConstraints {
+  return getBrowserAudioConstraints();
+}
+
 export default function VoiceSessionDock() {
   const currentUser = useChatStore((state) => state.currentUser);
   const currentChannel = useChatStore((state) => state.currentChannel);
@@ -71,6 +89,7 @@ export default function VoiceSessionDock() {
   const isDeafened = useChatStore((state) => state.voiceIsDeafened);
   const inputVolume = useChatStore((state) => state.voiceInputVolume);
   const outputVolume = useChatStore((state) => state.voiceOutputVolume);
+  const noiseMode = useChatStore((state) => state.voiceNoiseMode);
   const voiceError = useChatStore((state) => state.voiceError);
   const voiceJoinRequest = useChatStore((state) => state.voiceJoinRequest);
   const joinCall = useChatStore((state) => state.joinCall);
@@ -81,6 +100,7 @@ export default function VoiceSessionDock() {
   const setVoiceDeafened = useChatStore((state) => state.setVoiceDeafened);
   const setVoiceInputVolume = useChatStore((state) => state.setVoiceInputVolume);
   const setVoiceOutputVolume = useChatStore((state) => state.setVoiceOutputVolume);
+  const setVoiceNoiseMode = useChatStore((state) => state.setVoiceNoiseMode);
   const setVoiceError = useChatStore((state) => state.setVoiceError);
 
   const [isConnecting, setIsConnecting] = useState(false);
@@ -90,6 +110,7 @@ export default function VoiceSessionDock() {
   const sourceStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const inputGainNodeRef = useRef<GainNode | null>(null);
+  const denoiseNodeRef = useRef<AudioWorkletNode | null>(null);
   const remoteAudioElementsRef = useRef<Map<string, HTMLMediaElement>>(new Map());
   const activeVoiceChannelRef = useRef<VoiceChannel | null>(null);
   const isLeavingRef = useRef(false);
@@ -121,6 +142,18 @@ export default function VoiceSessionDock() {
     if (!gainNode || !audioContext) return;
     gainNode.gain.setTargetAtTime(inputVolume / 100, audioContext.currentTime, 0.01);
   }, [inputVolume]);
+
+  useEffect(() => {
+    const sourceTrack = sourceStreamRef.current?.getAudioTracks()[0];
+    if (sourceTrack) {
+      sourceTrack.applyConstraints(getAudioConstraints()).catch(() => {});
+    }
+    denoiseNodeRef.current?.port.postMessage({
+      type: 'configure',
+      enabled: noiseMode === 'custom_denoise',
+      maxReduction: 0.18,
+    });
+  }, [noiseMode]);
 
   const participantsArray = useCallback((updater: (items: Map<string, VoiceParticipant>) => void) => {
     const current = new Map(useChatStore.getState().voiceParticipants.map((participant) => [participant.identity, participant]));
@@ -190,6 +223,7 @@ export default function VoiceSessionDock() {
     }
     audioContextRef.current = null;
     inputGainNodeRef.current = null;
+    denoiseNodeRef.current = null;
   }, []);
 
   const cleanupRemoteAudio = useCallback(() => {
@@ -200,25 +234,50 @@ export default function VoiceSessionDock() {
   const createProcessedAudioTrack = useCallback(async (): Promise<ProcessedAudio> => {
     const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
     const audioContext = new AudioContextConstructor();
+    if (audioContext.audioWorklet) {
+      await audioContext.audioWorklet.addModule('/audio/noise-suppressor.worklet.js').catch(() => {});
+    }
     const sourceStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: false,
-      },
+      audio: getAudioConstraints(),
     });
     const source = audioContext.createMediaStreamSource(sourceStream);
+    const highPass = audioContext.createBiquadFilter();
+    highPass.type = 'highpass';
+    highPass.frequency.value = 80;
+    highPass.Q.value = 0.7;
+    const compressor = audioContext.createDynamicsCompressor();
+    compressor.threshold.value = -28;
+    compressor.knee.value = 18;
+    compressor.ratio.value = 3;
+    compressor.attack.value = 0.005;
+    compressor.release.value = 0.12;
     const gainNode = audioContext.createGain();
     gainNode.gain.value = inputVolume / 100;
     const destination = audioContext.createMediaStreamDestination();
-    source.connect(gainNode);
+    let denoiseNode: AudioWorkletNode | null = null;
+    try {
+      denoiseNode = new AudioWorkletNode(audioContext, 'chat-noise-suppressor');
+      denoiseNode.port.postMessage({
+        type: 'configure',
+        enabled: noiseMode === 'custom_denoise',
+        maxReduction: 0.18,
+      });
+      source.connect(highPass);
+      highPass.connect(denoiseNode);
+      denoiseNode.connect(compressor);
+      compressor.connect(gainNode);
+    } catch {
+      source.connect(highPass);
+      highPass.connect(compressor);
+      compressor.connect(gainNode);
+    }
     gainNode.connect(destination);
 
     const mediaTrack = destination.stream.getAudioTracks()[0];
     const track = new LocalAudioTrack(mediaTrack, undefined, true, audioContext);
     track.source = Track.Source.Microphone;
-    return { track, sourceStream, audioContext, gainNode };
-  }, [inputVolume]);
+    return { track, sourceStream, audioContext, gainNode, denoiseNode };
+  }, [inputVolume, noiseMode]);
 
   const getToken = async (roomName: string): Promise<{ token: string; livekitUrl: string }> => {
     return api.get<{ token: string; livekitUrl: string }>(`/api/livekit/token?room=${encodeURIComponent(roomName)}`);
@@ -304,6 +363,7 @@ export default function VoiceSessionDock() {
       sourceStreamRef.current = processedAudio.sourceStream;
       audioContextRef.current = processedAudio.audioContext;
       inputGainNodeRef.current = processedAudio.gainNode;
+      denoiseNodeRef.current = processedAudio.denoiseNode;
       await room.localParticipant.publishTrack(processedAudio.track, { source: Track.Source.Microphone });
 
       room.remoteParticipants.forEach((participant) => {
@@ -472,6 +532,26 @@ export default function VoiceSessionDock() {
                 className="w-full accent-indigo-500"
               />
             </label>
+            <div>
+              <div className="mb-1 text-xs text-zinc-400">音频处理</div>
+              <div className="grid grid-cols-2 rounded-xl border border-zinc-700 bg-zinc-900/70 p-1">
+                {voiceNoiseModes.map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    onClick={() => setVoiceNoiseMode(mode.value)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                      noiseMode === mode.value
+                        ? 'bg-indigo-500 text-white'
+                        : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
+                    }`}
+                    title={mode.title}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}

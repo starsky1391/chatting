@@ -53,6 +53,8 @@ export interface VoiceParticipant {
   isMuted: boolean;
 }
 
+export type VoiceNoiseMode = 'browser_processing' | 'custom_denoise';
+
 export interface ChatState {
   // 用户信息
   currentUser: User | null;
@@ -100,6 +102,7 @@ export interface ChatState {
   voiceIsDeafened: boolean;
   voiceInputVolume: number;
   voiceOutputVolume: number;
+  voiceNoiseMode: VoiceNoiseMode;
   voiceError: string | null;
   voiceJoinRequest: { channel: Channel; nonce: number } | null;
   joinCall: () => void;
@@ -114,6 +117,7 @@ export interface ChatState {
   setVoiceDeafened: (isDeafened: boolean) => void;
   setVoiceInputVolume: (volume: number) => void;
   setVoiceOutputVolume: (volume: number) => void;
+  setVoiceNoiseMode: (mode: VoiceNoiseMode) => void;
   setVoiceError: (error: string | null) => void;
   requestJoinVoiceChannel: (channel: Channel) => void;
   
@@ -155,6 +159,23 @@ export function clearStoredAuth(): void {
   if (typeof window === 'undefined') return;
   localStorage.removeItem('user');
   localStorage.removeItem('token');
+}
+
+export function getStoredVoiceNoiseMode(): VoiceNoiseMode {
+  if (typeof window === 'undefined') return 'browser_processing';
+  const storedMode = localStorage.getItem('voiceNoiseMode');
+  if (storedMode === 'browser_processing' || storedMode === 'custom_denoise') {
+    return storedMode;
+  }
+  if (storedMode === 'none' || storedMode === 'noise_suppression') {
+    return 'browser_processing';
+  }
+  return 'browser_processing';
+}
+
+export function saveStoredVoiceNoiseMode(mode: VoiceNoiseMode): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('voiceNoiseMode', mode);
 }
 
 export const chatStoreSelectors = {
@@ -337,6 +358,7 @@ export const useChatStore = create<ChatState>((set) => {
     voiceIsDeafened: false,
     voiceInputVolume: 100,
     voiceOutputVolume: 100,
+    voiceNoiseMode: getStoredVoiceNoiseMode(),
     voiceError: null,
     voiceJoinRequest: null,
     
@@ -381,6 +403,10 @@ export const useChatStore = create<ChatState>((set) => {
     setVoiceDeafened: (isDeafened) => set({ voiceIsDeafened: isDeafened }),
     setVoiceInputVolume: (volume) => set({ voiceInputVolume: Math.max(0, Math.min(200, volume)) }),
     setVoiceOutputVolume: (volume) => set({ voiceOutputVolume: Math.max(0, Math.min(100, volume)) }),
+    setVoiceNoiseMode: (mode) => {
+      saveStoredVoiceNoiseMode(mode);
+      set({ voiceNoiseMode: mode });
+    },
     setVoiceError: (error) => set({ voiceError: error }),
     requestJoinVoiceChannel: (channel) => set({ voiceJoinRequest: { channel, nonce: Date.now() } }),
     

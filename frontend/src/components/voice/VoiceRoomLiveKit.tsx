@@ -345,11 +345,12 @@ export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
                     <div className="relative w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-sm overflow-hidden">
                       {avatarUrl ? (
                         <Image
-                          src={config.api.imageUrl(avatarUrl)}
+                          src={config.api.avatarThumbUrl(avatarUrl, 32)}
                           alt=""
                           fill
                           sizes="32px"
                           className="object-cover"
+                          unoptimized
                         />
                       ) : (
                         (name || '?').charAt(0).toUpperCase()

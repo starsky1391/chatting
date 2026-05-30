@@ -372,11 +372,12 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                       <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-indigo-500/20 text-xs font-semibold text-indigo-100">
                         {message.sender.avatarUrl ? (
                           <Image
-                            src={config.api.imageUrl(avatarUrl)}
+                            src={config.api.avatarThumbUrl(avatarUrl, 32)}
                             alt=""
                             fill
                             sizes="32px"
                             className="object-cover"
+                            unoptimized
                           />
                         ) : (
                           message.sender.avatar || message.sender.username.charAt(0).toUpperCase()

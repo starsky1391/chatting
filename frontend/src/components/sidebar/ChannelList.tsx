@@ -476,11 +476,12 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
             <div className="relative w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center overflow-hidden">
               {currentUser?.avatarUrl ? (
                 <Image
-                  src={config.api.imageUrl(currentUser.avatarUrl)}
+                  src={config.api.avatarThumbUrl(currentUser.avatarUrl, 32)}
                   alt="Avatar"
                   fill
                   sizes="32px"
                   className="object-cover"
+                  unoptimized
                 />
               ) : (
                 currentUser?.username?.charAt(0)?.toUpperCase() || 'U'

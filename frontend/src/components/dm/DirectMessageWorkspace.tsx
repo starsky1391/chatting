@@ -70,7 +70,7 @@ type DirectMessageDeleteSocketPayload = {
 };
 
 function avatarUrl(user: UserResponse) {
-  return config.api.imageUrl(user.avatarUrl);
+  return config.api.avatarThumbUrl(user.avatarUrl, 40);
 }
 
 function displayInitial(user?: UserResponse) {
@@ -564,6 +564,7 @@ function Avatar({ user }: { user?: UserResponse }) {
           fill
           sizes="40px"
           className="object-cover"
+          unoptimized
         />
       ) : (
         displayInitial(user)

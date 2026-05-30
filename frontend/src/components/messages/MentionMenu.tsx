@@ -44,11 +44,12 @@ const MentionMenu: React.FC<MentionMenuProps> = ({
               }`}>
                 {member.avatarUrl ? (
                   <Image
-                    src={config.api.imageUrl(avatarUrl)}
+                    src={config.api.avatarThumbUrl(avatarUrl, 28)}
                     alt=""
                     fill
                     sizes="28px"
                     className="object-cover"
+                    unoptimized
                   />
                 ) : (
                   member.avatar || member.username.charAt(0).toUpperCase()

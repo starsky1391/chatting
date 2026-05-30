@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { api } from '@/lib/api';
+import { config } from '@/lib/config';
 import { onWebSocketMessage } from '@/lib/socket';
 import type { CallParticipant, Channel } from './types';
 
@@ -153,11 +154,12 @@ const VoiceChannelNotice: React.FC<VoiceChannelNoticeProps> = ({
                   <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-semibold text-white">
                     {participant.avatarUrl ? (
                       <Image
-                        src={participant.avatarUrl}
+                        src={config.api.avatarThumbUrl(participant.avatarUrl, 40)}
                         alt=""
                         fill
                         sizes="40px"
                         className="object-cover"
+                        unoptimized
                       />
                     ) : (
                       participant.name.charAt(0).toUpperCase()
@@ -184,11 +186,12 @@ const VoiceChannelNotice: React.FC<VoiceChannelNoticeProps> = ({
                   <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-semibold text-white">
                     {participant.avatarUrl ? (
                       <Image
-                        src={participant.avatarUrl}
+                        src={config.api.avatarThumbUrl(participant.avatarUrl, 40)}
                         alt=""
                         fill
                         sizes="40px"
                         className="object-cover"
+                        unoptimized
                       />
                     ) : (
                       participant.username.charAt(0).toUpperCase()

@@ -98,11 +98,12 @@ const MemberList: React.FC = () => {
             <div className="relative flex h-6 w-6 items-center justify-center overflow-hidden rounded bg-indigo-500/20 text-xs font-bold">
               {member.avatarUrl ? (
                 <Image
-                  src={config.api.imageUrl(member.avatarUrl)}
+                  src={config.api.avatarThumbUrl(member.avatarUrl, 24)}
                   alt="Avatar"
                   fill
                   sizes="24px"
                   className="object-cover"
+                  unoptimized
                 />
               ) : (
                 member.avatar || member.username?.charAt(0)?.toUpperCase() || 'U'

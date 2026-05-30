@@ -304,11 +304,12 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
           >
             {currentUser?.avatarUrl ? (
               <Image
-                src={config.api.imageUrl(currentUser.avatarUrl)}
+                src={config.api.avatarThumbUrl(currentUser.avatarUrl, 48)}
                 alt="Avatar"
                 fill
                 sizes="48px"
                 className="object-cover"
+                unoptimized
               />
             ) : (
               <span className="text-lg font-bold text-zinc-300">
