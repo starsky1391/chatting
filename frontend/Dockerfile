@@ -7,9 +7,10 @@ ARG NPM_REGISTRY=https://registry.npmmirror.com
 ARG NEXT_PUBLIC_API_URL=
 ARG NEXT_PUBLIC_SOCKET_URL=
 ARG NEXT_PUBLIC_IMAGE_URL=
+ARG NODE_IMAGE=node:20-alpine
 
 # Dependencies stage
-FROM node:20-alpine AS deps
+FROM ${NODE_IMAGE} AS deps
 
 ARG NPM_REGISTRY
 
@@ -41,7 +42,7 @@ RUN npm config set registry ${NPM_REGISTRY} && \
      npm install --prefer-offline --no-audit --no-fund --progress=false)
 
 # Builder stage
-FROM node:20-alpine AS builder
+FROM ${NODE_IMAGE} AS builder
 
 ARG NPM_REGISTRY
 ARG NEXT_PUBLIC_API_URL
@@ -67,7 +68,7 @@ ENV TURBOPACK_DISABLE_FS_BENCHMARKING=1
 RUN npm run build 2>&1
 
 # Runtime stage
-FROM node:20-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
 
 # Use Alibaba mirror for Alpine
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories

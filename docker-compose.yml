@@ -123,6 +123,9 @@ services:
     build:
       context: ./backend-go
       dockerfile: Dockerfile
+      args:
+        GO_IMAGE: ${GO_IMAGE:-golang:1.23-alpine}
+        ALPINE_IMAGE: ${ALPINE_IMAGE:-alpine:latest}
     container_name: chatting-backend
     restart: unless-stopped
     environment:
@@ -206,6 +209,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
         NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-}
@@ -234,6 +238,8 @@ services:
     build:
       context: ./docker/nginx
       dockerfile: Dockerfile
+      args:
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:alpine}
     container_name: chatting-nginx
     restart: unless-stopped
     volumes:

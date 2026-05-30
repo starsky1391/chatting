@@ -3,8 +3,11 @@
 # Enhanced retry mechanism for unstable networks
 # ============================================
 
+ARG GO_IMAGE=golang:1.23-alpine
+ARG ALPINE_IMAGE=alpine:latest
+
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM ${GO_IMAGE} AS builder
 
 # Use Alibaba mirror for Alpine
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
@@ -35,7 +38,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o main ./cm
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o seed-demo ./cmd/seed-demo
 
 # Runtime stage
-FROM alpine:latest
+FROM ${ALPINE_IMAGE}
 
 # Use Alibaba mirror for Alpine
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories

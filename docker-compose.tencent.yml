@@ -1,0 +1,16 @@
+services:
+  backend:
+    build:
+      args:
+        GO_IMAGE: mirror.ccs.tencentyun.com/library/golang:1.23-alpine
+        ALPINE_IMAGE: mirror.ccs.tencentyun.com/library/alpine:latest
+
+  frontend:
+    build:
+      args:
+        NODE_IMAGE: mirror.ccs.tencentyun.com/library/node:20-alpine
+
+  nginx:
+    build:
+      args:
+        NGINX_IMAGE: mirror.ccs.tencentyun.com/library/nginx:alpine

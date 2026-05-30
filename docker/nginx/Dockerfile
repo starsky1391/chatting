@@ -1,4 +1,5 @@
-FROM nginx:alpine
+ARG NGINX_IMAGE=nginx:alpine
+FROM ${NGINX_IMAGE}
 
 RUN apk add --no-cache openssl
 
