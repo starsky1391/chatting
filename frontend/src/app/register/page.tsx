@@ -2,6 +2,7 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { saveLastLoginEmail } from '@/lib/authPreferences';
 import { useChatStore } from '@/store/useChatStore';
 
 function RegisterForm() {
@@ -83,6 +84,7 @@ function RegisterForm() {
         password,
         verificationCode,
       });
+      saveLastLoginEmail(data.user.email || email);
       login(data.user, data.accessToken);
 
       // Check for redirect parameter
@@ -162,6 +164,8 @@ function RegisterForm() {
                 <input
                   type="text"
                   id="username"
+                  name="username"
+                  autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
@@ -189,6 +193,10 @@ function RegisterForm() {
                   <input
                     type="email"
                     id="email"
+                    name="email"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -220,6 +228,8 @@ function RegisterForm() {
                 <input
                   type="text"
                   id="verificationCode"
+                  name="one-time-code"
+                  autoComplete="one-time-code"
                   value={verificationCode}
                   onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   required
@@ -245,6 +255,8 @@ function RegisterForm() {
                 <input
                   type="password"
                   id="password"
+                  name="new-password"
+                  autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required

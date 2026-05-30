@@ -1,6 +1,6 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 import React, { useEffect, useRef, useState, KeyboardEvent } from 'react';
+import Image from 'next/image';
 import ReactMarkdown from 'react-markdown';
 import { config } from '@/lib/config';
 import { UserContextMenu, useUserContextMenu } from '@/components/user/UserContextMenu';
@@ -63,7 +63,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
   const imagePath = safeMessage.content.body.startsWith('image:')
     ? safeMessage.content.body.replace('image:', '')
     : safeMessage.content.body;
-  const imageUrl = isImageMessage ? `${config.api.baseUrl}${imagePath}` : '';
+  const imageUrl = isImageMessage ? config.api.imageUrl(imagePath) : '';
 
   const [isImageExpanded, setIsImageExpanded] = useState(false);
 
@@ -142,10 +142,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
   const renderAvatar = () => {
     if (safeMessage.sender.avatarUrl) {
       return (
-        <img
-          src={`${config.api.baseUrl}${safeMessage.sender.avatarUrl}`}
+        <Image
+          src={config.api.imageUrl(safeMessage.sender.avatarUrl)}
           alt={safeMessage.sender.username}
-          className="w-full h-full object-cover"
+          fill
+          sizes="40px"
+          className="object-cover"
         />
       );
     }
@@ -159,7 +161,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
       {!safeMessage.isOwn && (
         <div
           ref={avatarRef}
-          className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-sm font-bold shadow-lg overflow-hidden cursor-pointer"
+          className="relative w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-sm font-bold shadow-lg overflow-hidden cursor-pointer"
           onClick={handleAvatarClick}
           onDoubleClick={handleAvatarDoubleClick}
           onContextMenu={(event) => openUserMenu(event, safeMessage.sender)}
@@ -203,10 +205,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
         {isImageMessage ? (
           <>
             <div className={`rounded-xl p-1 shadow-lg ${safeMessage.isOwn ? 'gradient-bg' : 'bg-zinc-700'}`}>
-              <img
+              <Image
                 src={imageUrl}
                 alt="Chat image"
-                className="max-w-full max-h-40 object-contain rounded-lg cursor-pointer transition-all duration-200 hover:opacity-90 hover:scale-[1.02]"
+                width={640}
+                height={480}
+                className="max-h-40 w-auto rounded-lg object-contain transition-all duration-200 hover:opacity-90 hover:scale-[1.02]"
                 onClick={() => setIsImageExpanded(true)}
               />
             </div>
@@ -232,10 +236,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
                     </svg>
                   </button>
 
-                  <img
+                  <Image
                     src={imageUrl}
                     alt="Expanded chat image"
-                    className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl"
+                    width={1280}
+                    height={960}
+                    className="max-h-[85vh] w-auto rounded-xl object-contain shadow-2xl"
                   />
                 </div>
               </div>
@@ -264,7 +270,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
       {safeMessage.isOwn && (
         <div
           ref={avatarRef}
-          className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-sm font-bold shadow-lg overflow-hidden cursor-pointer"
+          className="relative w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-sm font-bold shadow-lg overflow-hidden cursor-pointer"
           onClick={handleAvatarClick}
           onDoubleClick={handleAvatarDoubleClick}
           onContextMenu={(event) => openUserMenu(event, safeMessage.sender)}

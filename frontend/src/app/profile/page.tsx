@@ -1,6 +1,6 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 import React, { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { config } from '@/lib/config';
@@ -140,9 +140,15 @@ export default function ProfilePage() {
           {/* Avatar Section */}
           <div className="flex flex-col items-center mb-6">
             <div className="relative">
-              <div className="w-24 h-24 rounded-2xl gradient-bg flex items-center justify-center text-4xl font-bold shadow-xl overflow-hidden">
+              <div className="relative w-24 h-24 rounded-2xl gradient-bg flex items-center justify-center text-4xl font-bold shadow-xl overflow-hidden">
                 {profile?.avatarUrl ? (
-                  <img src={`${config.api.baseUrl}${profile.avatarUrl}`} alt="Avatar" className="w-full h-full object-cover" />
+                  <Image
+                    src={config.api.imageUrl(profile.avatarUrl)}
+                    alt="Avatar"
+                    fill
+                    sizes="96px"
+                    className="object-cover"
+                  />
                 ) : (
                   profile?.avatar || profile?.username?.charAt(0)?.toUpperCase() || 'U'
                 )}

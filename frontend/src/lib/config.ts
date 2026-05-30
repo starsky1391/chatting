@@ -8,6 +8,9 @@ const _RAW_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 // 如果值是 /api 或 /api/，去掉它（前端代码已包含 /api 前缀）
 const API_URL = (_RAW_URL === '/api' || _RAW_URL === '/api/') ? '' : _RAW_URL;
+const DEFAULT_IMAGE_URL = process.env.NODE_ENV === 'production' ? 'http://backend:3001' : 'http://localhost:3001';
+const IMAGE_URL = process.env.NEXT_PUBLIC_IMAGE_URL
+  || (API_URL.startsWith('http') ? API_URL : DEFAULT_IMAGE_URL);
 
 // 自动推导 WebSocket URL
 const getSocketUrl = (apiUrl: string): string => {
@@ -17,9 +20,22 @@ const getSocketUrl = (apiUrl: string): string => {
   return '';
 };
 
+const getImageUrl = (path?: string): string => {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:') || path.startsWith('blob:')) {
+    return path;
+  }
+  if (path.startsWith('/')) {
+    return `${IMAGE_URL}${path}`;
+  }
+  return path;
+};
+
 export const config = {
   api: {
     baseUrl: API_URL,
+    imageBaseUrl: IMAGE_URL,
+    imageUrl: getImageUrl,
     socketUrl: getSocketUrl(API_URL)
   },
 

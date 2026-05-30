@@ -112,7 +112,6 @@ const MessageComposer: React.FC<MessageComposerProps> = ({
                 alt="Preview"
                 width={384}
                 height={192}
-                unoptimized
                 className="max-h-48 w-auto rounded-xl border border-zinc-700 object-contain"
               />
             </div>

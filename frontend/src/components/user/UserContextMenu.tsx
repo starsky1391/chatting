@@ -1,7 +1,7 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 
 import React, { MouseEvent, useCallback, useEffect, useId, useMemo, useState } from 'react';
+import Image from 'next/image';
 import { createPortal } from 'react-dom';
 import { Ban, Check, Copy, MessageCircle, User, UserMinus, UserPlus, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -60,9 +60,7 @@ const MENU_GAP = 8;
 const OPEN_MENU_EVENT = 'chat:user-context-menu-open';
 
 function getAvatarUrl(user: ContextMenuUser) {
-  if (!user.avatarUrl) return '';
-  if (user.avatarUrl.startsWith('http')) return user.avatarUrl;
-  return `${config.api.baseUrl}${user.avatarUrl}`;
+  return config.api.imageUrl(user.avatarUrl);
 }
 
 function getInitial(user: ContextMenuUser) {
@@ -292,7 +290,15 @@ export function UserContextMenu({
       >
         <div className="mb-1 flex items-center gap-3 border-b border-zinc-700/70 px-3 pb-3 pt-1">
           <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-indigo-500/20 font-semibold text-white">
-            {imageUrl ? <img src={imageUrl} alt={user.username} className="h-full w-full object-cover" /> : getInitial(user)}
+            {imageUrl ? (
+              <Image
+                src={imageUrl}
+                alt={user.username}
+                fill
+                sizes="40px"
+                className="object-cover"
+              />
+            ) : getInitial(user)}
             <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#18181b] ${user.isOnline ? 'bg-green-500' : 'bg-zinc-500'}`} />
           </div>
           <div className="min-w-0">
@@ -349,7 +355,13 @@ export function UserContextMenu({
                 <div className="-mt-12">
                   <div className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-4 border-[#1b1b1d] bg-amber-100 text-3xl font-semibold text-zinc-900 shadow-xl">
                     {getAvatarUrl(profileUser) ? (
-                      <img src={getAvatarUrl(profileUser)} alt={profileUser.username} className="h-full w-full object-cover" />
+                      <Image
+                        src={getAvatarUrl(profileUser)}
+                        alt={profileUser.username}
+                        fill
+                        sizes="96px"
+                        className="object-cover"
+                      />
                     ) : (
                       getInitial(profileUser)
                     )}

@@ -6,6 +6,7 @@
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 ARG NEXT_PUBLIC_API_URL=
 ARG NEXT_PUBLIC_SOCKET_URL=
+ARG NEXT_PUBLIC_IMAGE_URL=
 
 # Dependencies stage
 FROM node:20-alpine AS deps
@@ -45,6 +46,7 @@ FROM node:20-alpine AS builder
 ARG NPM_REGISTRY
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_SOCKET_URL
+ARG NEXT_PUBLIC_IMAGE_URL
 
 # Use Alibaba mirror for Alpine
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
@@ -58,6 +60,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}
+ENV NEXT_PUBLIC_IMAGE_URL=${NEXT_PUBLIC_IMAGE_URL}
 ENV TURBOPACK_DISABLE_FS_BENCHMARKING=1
 
 # Build with output standalone for smaller image

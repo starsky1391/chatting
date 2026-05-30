@@ -1,6 +1,6 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 import React, { useMemo, useState } from 'react';
+import Image from 'next/image';
 import { ChevronDown, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { chatStoreSelectors, useChatStore } from '../../store/useChatStore';
@@ -95,9 +95,15 @@ const MemberList: React.FC = () => {
       >
         <div className="flex items-center gap-2">
           <div className="relative">
-            <div className="flex h-6 w-6 items-center justify-center overflow-hidden rounded bg-indigo-500/20 text-xs font-bold">
+            <div className="relative flex h-6 w-6 items-center justify-center overflow-hidden rounded bg-indigo-500/20 text-xs font-bold">
               {member.avatarUrl ? (
-                <img src={`${config.api.baseUrl}${member.avatarUrl}`} alt="Avatar" className="h-full w-full object-cover" />
+                <Image
+                  src={config.api.imageUrl(member.avatarUrl)}
+                  alt="Avatar"
+                  fill
+                  sizes="24px"
+                  className="object-cover"
+                />
               ) : (
                 member.avatar || member.username?.charAt(0)?.toUpperCase() || 'U'
               )}

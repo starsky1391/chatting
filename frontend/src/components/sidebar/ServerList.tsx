@@ -1,6 +1,6 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 import React, { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { useChatStore } from '../../store/useChatStore';
 import { usePathname, useRouter } from 'next/navigation';
 import { Plus, Search, Users, X } from 'lucide-react';
@@ -144,10 +144,7 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
   };
 
   const getGroupIconUrl = (icon?: string) => {
-    if (!icon) return '';
-    if (icon.startsWith('http')) return icon;
-    if (icon.startsWith('/uploads/')) return `${config.api.baseUrl}${icon}`;
-    return '';
+    return config.api.imageUrl(icon);
   };
 
   if (isLoading) {
@@ -263,7 +260,7 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
                   <button
                     onClick={() => handleGroupClick(group)}
                     className={cn(
-                      "group flex h-12 w-12 items-center justify-center overflow-hidden text-lg font-bold transition-all duration-200 hover:scale-105",
+                      "group relative flex h-12 w-12 items-center justify-center overflow-hidden text-lg font-bold transition-all duration-200 hover:scale-105",
                       currentGroupId === group.id
                         ? "rounded-[14px] bg-indigo-500 text-white shadow-lg"
                         : hasImage
@@ -273,7 +270,13 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
                     aria-label={group.name}
                   >
                     {iconUrl ? (
-                      <img src={iconUrl} alt={group.name} className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105" />
+                      <Image
+                        src={iconUrl}
+                        alt={group.name}
+                        fill
+                        sizes="48px"
+                        className="object-cover transition-transform duration-200 group-hover:scale-105"
+                      />
                     ) : group.icon ? (
                       <span className="text-2xl">{group.icon}</span>
                     ) : (
@@ -296,11 +299,17 @@ const ServerList: React.FC<ServerListProps> = ({ isLoading = false }) => {
         >
           <button
             onClick={() => router.push('/profile')}
-            className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-zinc-700/50 transition-all duration-200 hover:scale-105 hover:rounded-xl"
+            className="relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-zinc-700/50 transition-all duration-200 hover:scale-105 hover:rounded-xl"
             aria-label={currentUser?.username || 'Profile'}
           >
             {currentUser?.avatarUrl ? (
-              <img src={`${config.api.baseUrl}${currentUser.avatarUrl}`} alt="Avatar" className="w-full h-full object-cover" />
+              <Image
+                src={config.api.imageUrl(currentUser.avatarUrl)}
+                alt="Avatar"
+                fill
+                sizes="48px"
+                className="object-cover"
+              />
             ) : (
               <span className="text-lg font-bold text-zinc-300">
                 {currentUser?.username?.charAt(0)?.toUpperCase() || 'U'}

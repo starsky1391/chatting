@@ -44,10 +44,9 @@ const MentionMenu: React.FC<MentionMenuProps> = ({
               }`}>
                 {member.avatarUrl ? (
                   <Image
-                    src={avatarUrl.startsWith('http') ? avatarUrl : `${config.api.baseUrl}${avatarUrl}`}
+                    src={config.api.imageUrl(avatarUrl)}
                     alt=""
                     fill
-                    unoptimized
                     sizes="28px"
                     className="object-cover"
                   />

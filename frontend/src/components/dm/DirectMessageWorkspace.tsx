@@ -1,7 +1,7 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 
 import React, { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import { Check, MessageCircle, Search, Send, UserPlus, Users, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import MessageBubble from '@/components/messages/MessageBubble';
@@ -70,9 +70,7 @@ type DirectMessageDeleteSocketPayload = {
 };
 
 function avatarUrl(user: UserResponse) {
-  if (!user.avatarUrl) return '';
-  if (user.avatarUrl.startsWith('http')) return user.avatarUrl;
-  return `${config.api.baseUrl}${user.avatarUrl}`;
+  return config.api.imageUrl(user.avatarUrl);
 }
 
 function displayInitial(user?: UserResponse) {
@@ -560,7 +558,13 @@ function Avatar({ user }: { user?: UserResponse }) {
   return (
     <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-700 text-sm font-semibold text-white">
       {imageUrl ? (
-        <img src={imageUrl} alt={user?.username || 'Avatar'} className="h-full w-full object-cover" />
+        <Image
+          src={imageUrl}
+          alt={user?.username || 'Avatar'}
+          fill
+          sizes="40px"
+          className="object-cover"
+        />
       ) : (
         displayInitial(user)
       )}

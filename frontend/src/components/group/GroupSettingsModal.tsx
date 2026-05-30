@@ -1,7 +1,7 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import { Bot, ImageIcon, Loader2, Plus, Save, Shield, Trash2, Upload, Users, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { config } from '@/lib/config';
@@ -68,10 +68,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 }
 
 function getAssetUrl(path?: string) {
-  if (!path) return '';
-  if (path.startsWith('http')) return path;
-  if (path.startsWith('/uploads/')) return `${config.api.baseUrl}${path}`;
-  return '';
+  return config.api.imageUrl(path);
 }
 
 const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
@@ -423,9 +420,15 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
             ) : activeTab === 'basic' ? (
               <div className="max-w-3xl space-y-7">
                 <div className="grid gap-4 sm:grid-cols-[156px_1fr] sm:items-center">
-                  <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-2xl bg-zinc-800 text-4xl font-bold text-zinc-300">
+                  <div className="relative flex h-32 w-32 items-center justify-center overflow-hidden rounded-2xl bg-zinc-800 text-4xl font-bold text-zinc-300">
                     {getAssetUrl(groupForm.icon) ? (
-                      <img src={getAssetUrl(groupForm.icon)} alt={groupForm.name || '群头像'} className="h-full w-full object-cover" />
+                      <Image
+                        src={getAssetUrl(groupForm.icon)}
+                        alt={groupForm.name || '群头像'}
+                        fill
+                        sizes="128px"
+                        className="object-cover"
+                      />
                     ) : groupForm.icon ? (
                       <span>{groupForm.icon}</span>
                     ) : (
@@ -606,9 +609,15 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
                     return (
                       <div key={member.id} className="grid grid-cols-[1.4fr_0.8fr_0.9fr] items-center gap-3 px-4 py-3">
                         <div className="flex min-w-0 items-center gap-3">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-indigo-500/20 text-sm font-semibold text-white">
+                          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-indigo-500/20 text-sm font-semibold text-white">
                             {getAssetUrl(member.avatarUrl) ? (
-                              <img src={getAssetUrl(member.avatarUrl)} alt={member.username} className="h-full w-full object-cover" />
+                              <Image
+                                src={getAssetUrl(member.avatarUrl)}
+                                alt={member.username}
+                                fill
+                                sizes="36px"
+                                className="object-cover"
+                              />
                             ) : (
                               member.avatar || member.username.charAt(0).toUpperCase()
                             )}

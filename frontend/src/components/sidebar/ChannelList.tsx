@@ -1,6 +1,6 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 import React, { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { getStoredUser, useChatStore } from '../../store/useChatStore';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -473,9 +473,15 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
           className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-zinc-700/30 transition-all"
         >
           <div className="relative">
-            <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center overflow-hidden">
+            <div className="relative w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center overflow-hidden">
               {currentUser?.avatarUrl ? (
-                <img src={`${config.api.baseUrl}${currentUser.avatarUrl}`} alt="Avatar" className="w-full h-full object-cover" />
+                <Image
+                  src={config.api.imageUrl(currentUser.avatarUrl)}
+                  alt="Avatar"
+                  fill
+                  sizes="32px"
+                  className="object-cover"
+                />
               ) : (
                 currentUser?.username?.charAt(0)?.toUpperCase() || 'U'
               )}

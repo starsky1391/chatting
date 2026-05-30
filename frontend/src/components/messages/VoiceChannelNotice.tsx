@@ -156,7 +156,6 @@ const VoiceChannelNotice: React.FC<VoiceChannelNoticeProps> = ({
                         src={participant.avatarUrl}
                         alt=""
                         fill
-                        unoptimized
                         sizes="40px"
                         className="object-cover"
                       />
@@ -188,7 +187,6 @@ const VoiceChannelNotice: React.FC<VoiceChannelNoticeProps> = ({
                         src={participant.avatarUrl}
                         alt=""
                         fill
-                        unoptimized
                         sizes="40px"
                         className="object-cover"
                       />

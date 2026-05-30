@@ -1,10 +1,11 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 import React, { useState, useEffect, useRef } from 'react';
+import Image from 'next/image';
 import { Room, RoomEvent, Participant, Track, createLocalAudioTrack } from 'livekit-client';
 import { useChatStore } from '@/store/useChatStore';
 import { useShallow } from 'zustand/react/shallow';
 import { api } from '@/lib/api';
+import { config } from '@/lib/config';
 import { sendWebSocketMessage, onWebSocketMessage } from '@/lib/socket';
 
 interface VoiceRoomProps {
@@ -341,9 +342,15 @@ export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-sm overflow-hidden">
+                    <div className="relative w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-sm overflow-hidden">
                       {avatarUrl ? (
-                        <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+                        <Image
+                          src={config.api.imageUrl(avatarUrl)}
+                          alt=""
+                          fill
+                          sizes="32px"
+                          className="object-cover"
+                        />
                       ) : (
                         (name || '?').charAt(0).toUpperCase()
                       )}

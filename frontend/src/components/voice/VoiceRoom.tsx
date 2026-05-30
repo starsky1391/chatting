@@ -1,6 +1,6 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Image from 'next/image';
 import { useChatStore } from '@/store/useChatStore';
 import { useShallow } from 'zustand/react/shallow';
 import { config } from '@/lib/config';
@@ -545,12 +545,14 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
         )}
 
         {/* Avatar */}
-        <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+        <div className="relative w-full h-full bg-zinc-800 flex items-center justify-center">
           {participant.avatarUrl ? (
-            <img
-              src={`${config.api.baseUrl}${participant.avatarUrl}`}
+            <Image
+              src={config.api.imageUrl(participant.avatarUrl)}
               alt={participant.username}
-              className="w-full h-full object-cover"
+              fill
+              sizes="96px"
+              className="object-cover"
             />
           ) : (
             <span className="text-3xl font-bold text-zinc-400">

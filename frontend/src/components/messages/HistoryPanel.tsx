@@ -372,10 +372,9 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                       <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-indigo-500/20 text-xs font-semibold text-indigo-100">
                         {message.sender.avatarUrl ? (
                           <Image
-                            src={avatarUrl.startsWith('http') ? avatarUrl : `${config.api.baseUrl}${avatarUrl}`}
+                            src={config.api.imageUrl(avatarUrl)}
                             alt=""
                             fill
-                            unoptimized
                             sizes="32px"
                             className="object-cover"
                           />

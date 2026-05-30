@@ -2,6 +2,7 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { getLastLoginEmail, saveLastLoginEmail } from '@/lib/authPreferences';
 import { useChatStore } from '@/store/useChatStore';
 
 function LoginForm() {
@@ -48,6 +49,13 @@ function LoginForm() {
     resetPassword.length >= 6 &&
     resetPassword === resetConfirmPassword &&
     !resettingPassword;
+
+  useEffect(() => {
+    const lastEmail = getLastLoginEmail();
+    if (lastEmail) {
+      setEmail(lastEmail);
+    }
+  }, []);
 
   useEffect(() => {
     if (resetCooldown <= 0) {
@@ -118,6 +126,7 @@ function LoginForm() {
         confirmPassword: resetConfirmPassword,
       });
       setEmail(resetEmail);
+      saveLastLoginEmail(resetEmail);
       setPassword('');
       setResetNotice('Password updated. Sign in with your new password.');
       setResetCode('');
@@ -138,6 +147,7 @@ function LoginForm() {
 
     try {
       const data = await api.post<LoginResponse>('/api/auth/login', { email, password });
+      saveLastLoginEmail(data.user.email || email);
       login(data.user, data.accessToken);
 
       // Get redirect from URL params directly (in case state wasn't set)
@@ -205,6 +215,10 @@ function LoginForm() {
                 <input
                   type="email"
                   id="email"
+                  name="email"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -236,6 +250,8 @@ function LoginForm() {
                 <input
                   type="password"
                   id="password"
+                  name="password"
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -324,6 +340,10 @@ function LoginForm() {
                   <input
                     type="email"
                     id="resetEmail"
+                    name="email"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     value={resetEmail}
                     onChange={(e) => setResetEmail(e.target.value)}
                     required
@@ -348,6 +368,8 @@ function LoginForm() {
                 <input
                   type="text"
                   id="resetCode"
+                  name="one-time-code"
+                  autoComplete="one-time-code"
                   value={resetCode}
                   onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   required
@@ -365,6 +387,8 @@ function LoginForm() {
                 <input
                   type="password"
                   id="resetPassword"
+                  name="new-password"
+                  autoComplete="new-password"
                   value={resetPassword}
                   onChange={(e) => setResetPassword(e.target.value)}
                   required
@@ -381,6 +405,8 @@ function LoginForm() {
                 <input
                   type="password"
                   id="resetConfirmPassword"
+                  name="confirm-password"
+                  autoComplete="new-password"
                   value={resetConfirmPassword}
                   onChange={(e) => setResetConfirmPassword(e.target.value)}
                   required
