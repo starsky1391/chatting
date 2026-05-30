@@ -6,6 +6,7 @@ import ChannelList from './sidebar/ChannelList';
 import MemberList from './members/MemberList';
 import ServerList from './sidebar/ServerList';
 import { api } from '../lib/api';
+import { isPageActive } from '@/hooks/usePageActivity';
 import {
   connectWebSocket,
   joinChannel,
@@ -20,8 +21,6 @@ import {
 import { Search, Users } from 'lucide-react';
 
 const MEMBER_REFRESH_INTERVAL_MS = 60_000;
-
-const isPageVisible = () => typeof document === 'undefined' || !document.hidden;
 
 const MainLayout: React.FC = () => {
   const currentUser = useChatStore((state) => state.currentUser);
@@ -342,7 +341,7 @@ const MainLayout: React.FC = () => {
     if (!currentChannel?.id) { setMembers([]); return; }
     const fetchChannelMembers = async () => {
       try {
-        if (!isPageVisible()) return;
+        if (!isPageActive()) return;
         if (!getStoredToken()) return;
 
         const membersData = await api.get<SocketUserPayload[]>(`/api/channels/${currentChannel.id}/active-members`);
@@ -366,12 +365,14 @@ const MainLayout: React.FC = () => {
     fetchChannelMembers();
     const interval = setInterval(fetchChannelMembers, MEMBER_REFRESH_INTERVAL_MS);
     const handleVisibilityChange = () => {
-      if (isPageVisible()) void fetchChannelMembers();
+      if (isPageActive()) void fetchChannelMembers();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('chatting-desktop-background', handleVisibilityChange);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('chatting-desktop-background', handleVisibilityChange);
     };
   }, [currentChannel, setMembers]);
 
@@ -379,7 +380,7 @@ const MainLayout: React.FC = () => {
   useEffect(() => {
     const fetchMembers = async () => {
       try {
-        if (!isPageVisible()) return;
+        if (!isPageActive()) return;
         if (!getStoredToken()) { setGroupMembers([]); return; }
 
         if (currentGroupId) {
@@ -397,12 +398,14 @@ const MainLayout: React.FC = () => {
     // WebSocket covers fast presence updates; polling is a slower reconciliation pass.
     const interval = setInterval(fetchMembers, MEMBER_REFRESH_INTERVAL_MS);
     const handleVisibilityChange = () => {
-      if (isPageVisible()) void fetchMembers();
+      if (isPageActive()) void fetchMembers();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('chatting-desktop-background', handleVisibilityChange);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('chatting-desktop-background', handleVisibilityChange);
     };
   }, [currentGroupId, setGroupMembers]);
 

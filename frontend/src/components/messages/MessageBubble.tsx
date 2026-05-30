@@ -1,7 +1,7 @@
 "use client";
 import React, { memo, useEffect, useRef, useState, KeyboardEvent } from 'react';
 import Image from 'next/image';
-import ReactMarkdown from 'react-markdown';
+import dynamic from 'next/dynamic';
 import { config } from '@/lib/config';
 import { UserContextMenu, useUserContextMenu } from '@/components/user/UserContextMenu';
 import { RotateCcw } from 'lucide-react';
@@ -31,9 +31,10 @@ interface MessageBubbleProps {
   now?: number;
 }
 
-const emphasizeMentions = (content: string) => (
-  content.replace(/(^|[\s(])@([^\s@.,:;!?，。！？、)]+)/g, '$1**@$2**')
-);
+const MarkdownMessage = dynamic(() => import('./MarkdownMessage'), {
+  ssr: false,
+  loading: () => <span className="whitespace-pre-wrap break-words">...</span>,
+});
 
 const shouldRenderMarkdown = (content: string) => (
   /(\*\*|__|~~|`|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|\[[^\]]+\]\([^)]+\))/m.test(content)
@@ -281,9 +282,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
           }`}>
             <div className="prose prose-sm prose-invert max-w-none">
               {shouldRenderMarkdown(safeMessage.content.body || '') ? (
-                <ReactMarkdown>
-                  {emphasizeMentions(safeMessage.content.body || 'No content')}
-                </ReactMarkdown>
+                <MarkdownMessage content={safeMessage.content.body || 'No content'} />
               ) : (
                 <span className="whitespace-pre-wrap break-words">
                   {renderPlainTextWithMentions(safeMessage.content.body || 'No content')}

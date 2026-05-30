@@ -9,7 +9,24 @@ type ToneStep = {
 };
 
 let audioContext: AudioContext | null = null;
+let audioContextIdleTimer: number | null = null;
 const lastPlayedAt: Record<string, number> = {};
+const AUDIO_CONTEXT_IDLE_MS = 120_000;
+
+function scheduleAudioContextIdleCleanup() {
+  if (typeof window === 'undefined') return;
+  if (audioContextIdleTimer) {
+    window.clearTimeout(audioContextIdleTimer);
+  }
+  audioContextIdleTimer = window.setTimeout(() => {
+    audioContextIdleTimer = null;
+    const context = audioContext;
+    audioContext = null;
+    if (context && context.state !== 'closed') {
+      void context.close().catch(() => {});
+    }
+  }, AUDIO_CONTEXT_IDLE_MS);
+}
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
@@ -18,6 +35,7 @@ function getAudioContext(): AudioContext | null {
   if (!audioContext || audioContext.state === 'closed') {
     audioContext = new AudioContextConstructor();
   }
+  scheduleAudioContextIdleCleanup();
   return audioContext;
 }
 
@@ -32,6 +50,7 @@ function playPattern(name: string, steps: ToneStep[]) {
   if (context.state === 'suspended') {
     void context.resume().catch(() => {});
   }
+  scheduleAudioContextIdleCleanup();
 
   let cursor = context.currentTime + 0.01;
   steps.forEach((step) => {
@@ -57,8 +76,11 @@ function playPattern(name: string, steps: ToneStep[]) {
 
 export function unlockNotificationSounds() {
   const context = getAudioContext();
-  if (!context || context.state !== 'suspended') return;
-  void context.resume().catch(() => {});
+  if (!context) return;
+  scheduleAudioContextIdleCleanup();
+  if (context.state === 'suspended') {
+    void context.resume().catch(() => {});
+  }
 }
 
 export function playDirectMessageSound() {

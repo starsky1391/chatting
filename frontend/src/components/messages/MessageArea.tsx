@@ -10,6 +10,7 @@ import { useChatStore } from '../../store/useChatStore';
 import { SkeletonMessageList } from '../ui/Skeleton';
 import { useChannelMessages } from '@/hooks/useChannelMessages';
 import { useMentionInput } from '@/hooks/useMentionInput';
+import { usePageActivity } from '@/hooks/usePageActivity';
 import { useVirtualMessageWindow } from '@/hooks/useVirtualMessageWindow';
 import type { Channel, MentionMember } from './types';
 
@@ -61,6 +62,7 @@ const MessageArea: React.FC<MessageAreaProps> = ({
 
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
   const [recallNow, setRecallNow] = useState(() => Date.now());
+  const isPageActive = usePageActivity();
 
   const members = useMemo(() => groupMembers as MentionMember[], [groupMembers]);
 
@@ -123,6 +125,8 @@ const MessageArea: React.FC<MessageAreaProps> = ({
   });
 
   useEffect(() => {
+    if (!isPageActive) return;
+
     if (!messages.some((message) => isMessageRecallable(message, Date.now()))) {
       return;
     }
@@ -139,7 +143,7 @@ const MessageArea: React.FC<MessageAreaProps> = ({
     return () => {
       window.clearInterval(timer);
     };
-  }, [messages]);
+  }, [isPageActive, messages]);
 
   if (!currentChannel) {
     return (
@@ -251,7 +255,11 @@ const MessageArea: React.FC<MessageAreaProps> = ({
                   <div
                     key={message.id}
                     ref={(node) => {
-                      messageRefs.current[message.id] = node;
+                      if (node) {
+                        messageRefs.current[message.id] = node;
+                      } else {
+                        delete messageRefs.current[message.id];
+                      }
                     }}
                     className={`rounded-xl transition-all ${
                       highlightMessageId === message.id ? 'bg-indigo-500/10 ring-1 ring-indigo-400/50' : ''

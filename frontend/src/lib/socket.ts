@@ -6,8 +6,11 @@ import { getStoredToken } from '@/store/useChatStore';
 
 // Global WebSocket instance
 let wsInstance: WebSocket | null = null;
+let connectPromise: Promise<WebSocket> | null = null;
 let isConnecting = false;
 let reconnectAttempts = 0;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let shouldReconnect = true;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = 2000;
 
@@ -35,27 +38,27 @@ export const getWebSocket = (): WebSocket | null => {
 
 // Connect to WebSocket server
 export const connectWebSocket = (): Promise<WebSocket> => {
-  return new Promise((resolve, reject) => {
-    if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
-      resolve(wsInstance);
-      return;
-    }
+  if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
+    return Promise.resolve(wsInstance);
+  }
 
-    if (isConnecting) {
-      // Wait for existing connection
-      const checkInterval = setInterval(() => {
-        if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
-          clearInterval(checkInterval);
-          resolve(wsInstance);
-        }
-      }, 100);
-      return;
-    }
+  if (connectPromise) {
+    return connectPromise;
+  }
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  connectPromise = new Promise((resolve, reject) => {
+    shouldReconnect = true;
 
     isConnecting = true;
     const token = getStoredToken();
     if (!token) {
       isConnecting = false;
+      connectPromise = null;
       reject(new Error('No token available'));
       return;
     }
@@ -79,6 +82,7 @@ export const connectWebSocket = (): Promise<WebSocket> => {
         console.log('WebSocket connected');
         isConnecting = false;
         reconnectAttempts = 0;
+        connectPromise = null;
         connectCallbacks.forEach((callback) => callback());
         resolve(wsInstance!);
       };
@@ -118,13 +122,15 @@ export const connectWebSocket = (): Promise<WebSocket> => {
         console.log('WebSocket closed:', event.code, event.reason);
         isConnecting = false;
         wsInstance = null;
+        connectPromise = null;
         disconnectCallbacks.forEach((callback) => callback());
 
         // Attempt reconnect if not a normal closure
-        if (event.code !== 1000 && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        if (shouldReconnect && event.code !== 1000 && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           reconnectAttempts++;
           console.log(`Reconnecting... Attempt ${reconnectAttempts}`);
-          setTimeout(() => {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
             connectWebSocket().catch(() => {});
           }, RECONNECT_DELAY * reconnectAttempts);
         }
@@ -132,9 +138,12 @@ export const connectWebSocket = (): Promise<WebSocket> => {
 
     } catch (error) {
       isConnecting = false;
+      connectPromise = null;
       reject(error);
     }
   });
+
+  return connectPromise;
 };
 
 // Send message
@@ -212,10 +221,16 @@ export const sendChatMessage = (channelId: number, content: string) => {
 
 // Cleanup WebSocket
 export const cleanupWebSocket = (): void => {
+  shouldReconnect = false;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   if (wsInstance) {
     wsInstance.close();
     wsInstance = null;
   }
+  connectPromise = null;
   isConnecting = false;
   reconnectAttempts = 0;
 };

@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import MessageBubble from '@/components/messages/MessageBubble';
 import { api } from '@/lib/api';
 import { config } from '@/lib/config';
+import { usePageActivity } from '@/hooks/usePageActivity';
 import { cleanupWebSocket, connectWebSocket, onWebSocketMessage } from '@/lib/socket';
 import { cn } from '@/lib/utils';
 import { getStoredToken, useChatStore } from '@/store/useChatStore';
@@ -69,6 +70,13 @@ type DirectMessageDeleteSocketPayload = {
   messageId?: number;
 };
 
+const RECALL_WINDOW_MS = 30_000;
+
+function isMessageRecallable(message: { sender?: { id?: number }; createdAt?: string }, currentUserId: number | undefined, now: number) {
+  if (!message.sender?.id || message.sender.id !== currentUserId || !message.createdAt) return false;
+  return now - new Date(message.createdAt).getTime() < RECALL_WINDOW_MS;
+}
+
 function avatarUrl(user: UserResponse) {
   return config.api.avatarThumbUrl(user.avatarUrl, 40);
 }
@@ -96,6 +104,8 @@ export default function DirectMessageWorkspace() {
   const [searchResults, setSearchResults] = useState<UserResponse[]>([]);
   const [messageInput, setMessageInput] = useState('');
   const [error, setError] = useState('');
+  const [recallNow, setRecallNow] = useState(() => Date.now());
+  const isPageActive = usePageActivity();
   const selectedConversationIDRef = useRef<number | null>(null);
 
   const loadFriends = useCallback(async () => {
@@ -292,21 +302,42 @@ export default function DirectMessageWorkspace() {
     }
   };
 
-  const recallMessage = async (messageID: number) => {
+  const recallMessage = useCallback(async (messageID: number) => {
     if (!selectedConversation) return;
 
     await api.delete<null>(`/api/dm/conversations/${selectedConversation.id}/messages/${messageID}`);
     setMessages((items) => items.filter((item) => item.id !== messageID));
     await loadConversations();
-  };
+  }, [loadConversations, selectedConversation]);
 
-  const mappedMessages = messages.map((message) => ({
+  useEffect(() => {
+    if (!isPageActive) return;
+
+    if (!messages.some((message) => isMessageRecallable(message, currentUser?.id, Date.now()))) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      const currentNow = Date.now();
+      setRecallNow(currentNow);
+
+      if (!messages.some((message) => isMessageRecallable(message, currentUser?.id, currentNow))) {
+        window.clearInterval(timer);
+      }
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [currentUser?.id, isPageActive, messages]);
+
+  const mappedMessages = useMemo(() => messages.map((message) => ({
     id: message.id,
     content: message.content,
     sender: message.sender,
     createdAt: message.createdAt,
     isOwn: message.sender.id === currentUser?.id,
-  }));
+  })), [currentUser?.id, messages]);
 
   return (
     <div className="flex h-screen bg-[#0f0f12] text-zinc-100">
@@ -522,7 +553,12 @@ export default function DirectMessageWorkspace() {
               ) : (
                 <div className="space-y-4">
                   {mappedMessages.map((message) => (
-                    <MessageBubble key={message.id} message={message} onRecall={recallMessage} />
+                    <MessageBubble
+                      key={message.id}
+                      message={message}
+                      onRecall={recallMessage}
+                      now={isMessageRecallable(message, currentUser?.id, recallNow) ? recallNow : undefined}
+                    />
                   ))}
                 </div>
               )}
