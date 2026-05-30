@@ -1,4 +1,7 @@
 services:
+  kafka:
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/redpandadata/redpanda:v24.2.5
+
   backend:
     build:
       args:
