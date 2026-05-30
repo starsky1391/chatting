@@ -13,6 +13,54 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+TENCENT_COMPOSE_FILE="docker-compose.tencent.yml"
+USE_TENCENT_COMPOSE=${USE_TENCENT_COMPOSE:-false}
+
+# Run docker compose with optional Tencent Cloud build image overrides.
+compose() {
+    if [ "$USE_TENCENT_COMPOSE" = "true" ]; then
+        if [ ! -f "$TENCENT_COMPOSE_FILE" ]; then
+            print_error "$TENCENT_COMPOSE_FILE not found"
+            exit 1
+        fi
+        docker compose -f docker-compose.yml -f "$TENCENT_COMPOSE_FILE" "$@"
+    else
+        docker compose "$@"
+    fi
+}
+
+enable_tencent_compose() {
+    USE_TENCENT_COMPOSE=true
+    print_msg "Using Tencent Cloud Docker build image overrides" "$GREEN"
+}
+
+parse_global_options() {
+    for arg in "$@"; do
+        case "$arg" in
+            --tencent|--tencent-cloud|--tencent-mirror)
+                USE_TENCENT_COMPOSE=true
+                ;;
+        esac
+    done
+}
+
+first_command_arg() {
+    for arg in "$@"; do
+        case "$arg" in
+            --help|-h)
+                echo "$arg"
+                return 0
+                ;;
+            --*)
+                ;;
+            *)
+                echo "$arg"
+                return 0
+                ;;
+        esac
+    done
+}
+
 # Print colored message
 print_msg() {
     echo -e "${2}${1}${NC}"
@@ -288,7 +336,7 @@ pull_images() {
     print_step "Pulling Docker Images"
 
     print_msg "Pulling base images..." "$YELLOW"
-    docker compose pull --ignore-buildable 2>/dev/null || true
+    compose pull --ignore-buildable 2>/dev/null || true
 
     print_success "Base images pulled"
 }
@@ -298,7 +346,7 @@ build_images() {
     print_step "Building Docker Images"
 
     print_msg "Building all services..." "$YELLOW"
-    docker compose build --pull
+    compose build --pull
 
     print_success "All images built successfully"
 }
@@ -318,12 +366,12 @@ rebuild_services() {
     print_step "Rebuilding Services"
 
     print_msg "Stopping services and removing compose-managed images..." "$YELLOW"
-    docker compose down --rmi all --remove-orphans
+    compose down --rmi all --remove-orphans
 
     prune_docker_cache
 
     print_msg "Rebuilding and starting services..." "$YELLOW"
-    docker compose up --build -d --remove-orphans
+    compose up --build -d --remove-orphans
 
     print_success "Services rebuilt successfully"
 }
@@ -333,7 +381,7 @@ start_services() {
     print_step "Starting Services"
 
     print_msg "Starting all containers..." "$YELLOW"
-    docker compose up -d --remove-orphans
+    compose up -d --remove-orphans
 
     print_msg "Waiting for services to be healthy..." "$YELLOW"
     sleep 30
@@ -343,7 +391,7 @@ start_services() {
     local retry=0
 
     while [ $retry -lt $max_retries ]; do
-        if docker compose ps | grep -q "healthy\|running"; then
+        if compose ps | grep -q "healthy\|running"; then
             break
         fi
         retry=$((retry + 1))
@@ -359,13 +407,17 @@ start_services() {
 show_status() {
     print_step "Service Status"
 
-    docker compose ps
+    compose ps
 
     echo ""
     print_msg "============================================" "$GREEN"
     print_msg "Deployment Complete!" "$GREEN"
     print_msg "============================================" "$GREEN"
     echo ""
+    if [ "$USE_TENCENT_COMPOSE" = "true" ]; then
+        print_msg "Compose mode: Tencent Cloud override ($TENCENT_COMPOSE_FILE)" "$BLUE"
+        echo ""
+    fi
     print_msg "Access the application at:" "$BLUE"
     print_msg "  HTTP:  http://localhost:${NGINX_HTTP_PORT:-8080}" "$BLUE"
     print_msg "  HTTPS: https://localhost:${NGINX_HTTPS_PORT:-8443}" "$BLUE"
@@ -379,6 +431,9 @@ show_status() {
     print_msg "  Stop services: docker compose down" "$YELLOW"
     print_msg "  Restart:       docker compose restart" "$YELLOW"
     print_msg "  Remove all:    docker compose down -v" "$YELLOW"
+    if [ "$USE_TENCENT_COMPOSE" = "true" ]; then
+        print_msg "  Tencent mode:  docker compose -f docker-compose.yml -f $TENCENT_COMPOSE_FILE ..." "$YELLOW"
+    fi
     echo ""
 }
 
@@ -390,14 +445,14 @@ health_check() {
     local all_healthy=true
 
     for service in "${services[@]}"; do
-        local status=$(docker compose ps --format json "$service" 2>/dev/null | grep -o '"Health":"[^"]*"' | head -1 | cut -d'"' -f4)
-        local state=$(docker compose ps --format json "$service" 2>/dev/null | grep -o '"State":"[^"]*"' | head -1 | cut -d'"' -f4)
+        local status=$(compose ps --format json "$service" 2>/dev/null | grep -o '"Health":"[^"]*"' | head -1 | cut -d'"' -f4)
+        local state=$(compose ps --format json "$service" 2>/dev/null | grep -o '"State":"[^"]*"' | head -1 | cut -d'"' -f4)
         
         if [ "$state" = "running" ] || [ "$status" = "healthy" ]; then
             print_success "$service is running${status:+ ($status)}"
         else
             # Fallback: check if container exists at all
-            if docker compose ps "$service" 2>/dev/null | grep -q "$service"; then
+            if compose ps "$service" 2>/dev/null | grep -q "$service"; then
                 print_success "$service is running"
             else
                 print_error "$service is not running"
@@ -417,7 +472,7 @@ health_check() {
 stop_services() {
     print_step "Stopping Services"
 
-    docker compose down
+    compose down
 
     print_success "All services stopped"
 }
@@ -430,7 +485,7 @@ clean_up() {
     echo
 
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        docker compose down -v --rmi local
+        compose down -v --rmi local
         print_success "Cleanup complete"
     else
         print_msg "Cleanup cancelled" "$YELLOW"
@@ -453,9 +508,9 @@ update_app() {
 show_logs() {
     local service=$1
     if [ -z "$service" ]; then
-        docker compose logs -f
+        compose logs -f
     else
-        docker compose logs -f "$service"
+        compose logs -f "$service"
     fi
 }
 
@@ -476,10 +531,11 @@ show_menu() {
     echo "  [7] View Logs"
     echo "  [8] Health Check"
     echo "  [9] Update Application"
+    echo "  [t] Tencent Cloud Deploy (use Tencent build image overrides)"
     echo "  [c] Clean Up (Remove all)"
     echo "  [0] Exit"
     echo ""
-    read -p "  Enter your choice (0-9/c): " choice
+    read -p "  Enter your choice (0-9/t/c): " choice
 
     case $choice in
         1)
@@ -526,6 +582,15 @@ show_menu() {
         9)
             update_app
             ;;
+        t|T)
+            enable_tencent_compose
+            check_root
+            check_docker_service
+            create_env_file
+            rebuild_services
+            health_check
+            show_status
+            ;;
         c|C)
             clean_up
             ;;
@@ -542,8 +607,11 @@ show_menu() {
 }
 
 # Parse command line arguments
-if [ $# -gt 0 ]; then
-    case $1 in
+parse_global_options "$@"
+command_arg=$(first_command_arg "$@")
+
+if [ -n "$command_arg" ]; then
+    case $command_arg in
         install)
             check_root
             install_docker
@@ -555,6 +623,13 @@ if [ $# -gt 0 ]; then
             configure_docker_mirror
             ;;
         deploy)
+            create_env_file
+            rebuild_services
+            health_check
+            show_status
+            ;;
+        deploy-tencent|tencent)
+            enable_tencent_compose
             create_env_file
             rebuild_services
             health_check
@@ -576,7 +651,7 @@ if [ $# -gt 0 ]; then
             show_logs "$2"
             ;;
         status)
-            docker compose ps
+            compose ps
             ;;
         health)
             health_check
@@ -589,11 +664,14 @@ if [ $# -gt 0 ]; then
             ;;
         --help|-h)
             echo "Usage: $0 [command]"
+            echo "       $0 deploy --tencent"
             echo ""
             echo "Commands:"
             echo "  install   Install Docker and dependencies"
             echo "  mirror    Configure Docker mirror for China"
             echo "  deploy    Deploy the application"
+            echo "  deploy-tencent"
+            echo "            Deploy with docker-compose.tencent.yml build image overrides"
             echo "  start     Start all services"
             echo "  stop      Stop all services"
             echo "  restart   Restart all services"
@@ -603,10 +681,14 @@ if [ $# -gt 0 ]; then
             echo "  update    Update and redeploy"
             echo "  clean     Remove all containers and volumes"
             echo ""
+            echo "Options:"
+            echo "  --tencent, --tencent-cloud, --tencent-mirror"
+            echo "            Use docker-compose.tencent.yml for build base images"
+            echo ""
             echo "Run without arguments for interactive menu."
             ;;
         *)
-            print_error "Unknown command: $1"
+            print_error "Unknown command: $command_arg"
             echo "Run '$0 --help' for usage information."
             exit 1
             ;;
