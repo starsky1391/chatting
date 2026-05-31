@@ -143,6 +143,22 @@ func (c *AuthController) GetCurrentUser(ctx *gin.Context) {
 	response.Success(ctx, user)
 }
 
+func (c *AuthController) GetUserProfile(ctx *gin.Context) {
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid user ID")
+		return
+	}
+
+	user, err := c.authService.GetUserResponseByID(uint(id))
+	if err != nil {
+		response.NotFound(ctx, "User not found")
+		return
+	}
+
+	response.Success(ctx, user)
+}
+
 func (c *AuthController) UpdateProfile(ctx *gin.Context) {
 	userID := ctx.GetUint("userID")
 

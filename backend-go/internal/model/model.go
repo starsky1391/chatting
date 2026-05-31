@@ -156,21 +156,31 @@ type UserResponse struct {
 	LastSeen  *time.Time `json:"lastSeen"`
 }
 
+type GroupMemberResponse struct {
+	ID        uint   `json:"id"`
+	Username  string `json:"username"`
+	Avatar    string `json:"avatar"`
+	AvatarURL string `json:"avatarUrl"`
+	Role      string `json:"role"`
+	GroupRole string `json:"groupRole,omitempty"`
+	IsOnline  bool   `json:"isOnline"`
+}
+
 type ChannelGroupResponse struct {
-	ID              uint                `json:"id"`
-	Name            string              `json:"name"`
-	Description     string              `json:"description"`
-	Icon            string              `json:"icon"`
-	OwnerID         uint                `json:"ownerId"`
-	InviteCode      string              `json:"inviteCode"`
-	InviteLink      string              `json:"inviteLink"` // format: CODE#OWNER_ID
-	TextChannels    []ChannelResponse   `json:"textChannels"`
-	VoiceChannels   []ChannelResponse   `json:"voiceChannels"`
-	Members         []UserResponse      `json:"members"`
-	Roles           []GroupRoleResponse `json:"roles"`
-	IsMember        bool                `json:"isMember"` // whether the requesting user is a member
-	MemberCount     int                 `json:"memberCount"`
-	CurrentUserRole string              `json:"currentUserRole,omitempty"`
+	ID              uint                  `json:"id"`
+	Name            string                `json:"name"`
+	Description     string                `json:"description"`
+	Icon            string                `json:"icon"`
+	OwnerID         uint                  `json:"ownerId"`
+	InviteCode      string                `json:"inviteCode"`
+	InviteLink      string                `json:"inviteLink"` // format: CODE#OWNER_ID
+	TextChannels    []ChannelResponse     `json:"textChannels"`
+	VoiceChannels   []ChannelResponse     `json:"voiceChannels"`
+	Members         []GroupMemberResponse `json:"members"`
+	Roles           []GroupRoleResponse   `json:"roles"`
+	IsMember        bool                  `json:"isMember"` // whether the requesting user is a member
+	MemberCount     int                   `json:"memberCount"`
+	CurrentUserRole string                `json:"currentUserRole,omitempty"`
 }
 
 type ChannelResponse struct {

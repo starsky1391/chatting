@@ -311,6 +311,24 @@ func (r *UserGroupRepository) FindByGroupID(groupID uint) ([]model.UserGroup, er
 	return userGroups, err
 }
 
+func (r *UserGroupRepository) FindMemberSummariesByGroupID(groupID uint) ([]model.GroupMemberResponse, error) {
+	var members []model.GroupMemberResponse
+	err := r.db.Model(&model.UserGroup{}).
+		Select("users.id, users.username, users.avatar, users.avatar_url, users.role, user_groups.role AS group_role").
+		Joins("JOIN users ON users.id = user_groups.user_id AND users.deleted_at IS NULL").
+		Where("user_groups.group_id = ?", groupID).
+		Order(`CASE user_groups.role
+			WHEN 'owner' THEN 0
+			WHEN 'admin' THEN 1
+			WHEN 'bot' THEN 2
+			WHEN 'moderator' THEN 3
+			WHEN 'guest' THEN 4
+			ELSE 5
+		END, users.username ASC, users.id ASC`).
+		Scan(&members).Error
+	return members, err
+}
+
 func (r *UserGroupRepository) FindByUserAndGroup(userID, groupID uint) (*model.UserGroup, error) {
 	var userGroup model.UserGroup
 	err := r.db.Preload("User").Where("user_id = ? AND group_id = ?", userID, groupID).First(&userGroup).Error

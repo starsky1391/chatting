@@ -455,7 +455,7 @@ func (s *ChannelGroupService) DeleteGroupAIConfig(groupID, userID uint) error {
 	return s.aiConfigRepo.DeleteByGroupID(groupID)
 }
 
-func (s *ChannelGroupService) GetGroupMembers(groupID uint) ([]model.UserResponse, error) {
+func (s *ChannelGroupService) GetGroupMembers(groupID uint) ([]model.GroupMemberResponse, error) {
 	members, err := s.getGroupMemberResponses(groupID)
 	if err != nil {
 		return nil, err
@@ -463,7 +463,7 @@ func (s *ChannelGroupService) GetGroupMembers(groupID uint) ([]model.UserRespons
 	return members, nil
 }
 
-func (s *ChannelGroupService) GetChannelMembers(channelID uint) ([]model.UserResponse, error) {
+func (s *ChannelGroupService) GetChannelMembers(channelID uint) ([]model.GroupMemberResponse, error) {
 	// Get channel to find its group
 	channel, err := s.channelRepo.FindByID(channelID)
 	if err != nil {
@@ -1026,8 +1026,8 @@ func (s *ChannelGroupService) getGroupRoleResponses(groupID uint) ([]model.Group
 	return responses, nil
 }
 
-func (s *ChannelGroupService) getGroupMemberResponses(groupID uint) ([]model.UserResponse, error) {
-	members, err := s.userGroupRepo.FindByGroupID(groupID)
+func (s *ChannelGroupService) getGroupMemberResponses(groupID uint) ([]model.GroupMemberResponse, error) {
+	members, err := s.userGroupRepo.FindMemberSummariesByGroupID(groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -1036,22 +1036,21 @@ func (s *ChannelGroupService) getGroupMemberResponses(groupID uint) ([]model.Use
 	if s.redis != nil {
 		userIDs := make([]uint, 0, len(members))
 		for _, member := range members {
-			userIDs = append(userIDs, member.User.ID)
+			userIDs = append(userIDs, member.ID)
 		}
 		onlineStatus = s.redis.GetUsersOnlineStatus(userIDs)
 	}
 
-	responses := make([]model.UserResponse, len(members))
+	responses := make([]model.GroupMemberResponse, len(members))
 	for i, member := range members {
-		response := model.ToUserResponse(member.User)
-		response.GroupRole = member.Role
-		if member.Role == AIBotRole {
+		response := member
+		if member.GroupRole == AIBotRole {
 			response.Username = s.getAIBotDisplayName(groupID)
 		}
 		if s.redis != nil {
-			response.IsOnline = onlineStatus[member.User.ID]
+			response.IsOnline = onlineStatus[member.ID]
 		}
-		if member.Role == AIBotRole {
+		if member.GroupRole == AIBotRole {
 			response.IsOnline = true
 		}
 		responses[i] = response

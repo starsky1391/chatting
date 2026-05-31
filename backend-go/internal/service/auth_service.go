@@ -234,6 +234,9 @@ func (s *AuthService) GetUserResponseByID(id uint) (*model.UserResponse, error) 
 		return nil, err
 	}
 	response := model.ToUserResponse(*user)
+	if s.redis != nil {
+		response.IsOnline = s.redis.IsUserOnline(id)
+	}
 	return &response, nil
 }
 

@@ -140,6 +140,7 @@ export function UserContextMenu({
   const currentUser = useChatStore((state) => state.currentUser);
   const [relationship, setRelationship] = useState<Relationship>({ status: 'none' });
   const [profileUser, setProfileUser] = useState<ContextMenuUser | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [feedback, setFeedback] = useState('');
 
   const user = menu?.user || null;
@@ -283,6 +284,18 @@ export function UserContextMenu({
       .catch(() => setFeedback('复制失败'));
   };
 
+  const openProfile = () => {
+    if (!user) return;
+    setProfileUser(user);
+    setProfileLoading(true);
+    setFeedback('');
+
+    void api.get<ContextMenuUser>(`/api/users/${user.id}/profile`)
+      .then((profile) => setProfileUser({ ...user, ...profile }))
+      .catch((error) => setFeedback(error instanceof Error ? error.message : '无法读取用户资料'))
+      .finally(() => setProfileLoading(false));
+  };
+
   if (typeof document === 'undefined' || !menu || !user) return null;
 
   return createPortal(
@@ -312,7 +325,7 @@ export function UserContextMenu({
           </div>
         </div>
 
-        <MenuButton icon={<User className="h-4 w-4" />} label="查看资料" onClick={() => setProfileUser(user)} />
+        <MenuButton icon={<User className="h-4 w-4" />} label="查看资料" onClick={openProfile} />
         <MenuButton icon={<MessageCircle className="h-4 w-4" />} label="发送私信" onClick={openDirectMessage} disabled={isSelf} />
 
         {relationship.status === 'incoming' ? (
@@ -405,7 +418,7 @@ export function UserContextMenu({
               </div>
 
               <p className="mt-6 min-h-6 break-words text-sm leading-6 text-zinc-400">
-                {profileUser.bio || '这个人很懒，什么都没写'}
+                {profileLoading ? '读取资料中...' : profileUser.bio || '这个人很懒，什么都没写'}
               </p>
 
               <div className="mt-7 flex flex-wrap gap-2">

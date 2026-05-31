@@ -137,6 +137,7 @@ func Setup(db *gorm.DB, cfg *config.Config, redisClient *redis.RedisClient) *gin
 			protected.POST("/user/avatar", authController.UploadAvatar)
 			protected.POST("/auth/logout", authController.Logout)
 			protected.GET("/users/online", authController.GetOnlineUsers)
+			protected.GET("/users/:id/profile", authController.GetUserProfile)
 
 			// Upload routes
 			protected.POST("/upload", authController.UploadImage)
