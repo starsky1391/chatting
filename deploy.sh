@@ -61,6 +61,73 @@ first_command_arg() {
     done
 }
 
+get_env_value() {
+    local key="$1"
+    if [ -f .env ]; then
+        grep -E "^${key}=" .env | tail -1 | cut -d= -f2-
+    fi
+}
+
+wait_for_service_health() {
+    local service="$1"
+    local expected="$2"
+    local attempts="${3:-30}"
+    local delay="${4:-2}"
+
+    local i=0
+    while [ "$i" -lt "$attempts" ]; do
+        local status=$(compose ps --format json "$service" 2>/dev/null | grep -o '"Health":"[^"]*"' | head -1 | cut -d'"' -f4)
+        local state=$(compose ps --format json "$service" 2>/dev/null | grep -o '"State":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+        if [ "$expected" = "healthy" ] && [ "$status" = "healthy" ]; then
+            return 0
+        fi
+
+        if [ "$expected" = "running" ] && [ "$state" = "running" ]; then
+            return 0
+        fi
+
+        i=$((i + 1))
+        sleep "$delay"
+    done
+
+    return 1
+}
+
+sync_postgres_password() {
+    local db_user="${DB_USERNAME:-$(get_env_value DB_USERNAME)}"
+    local db_name="${DB_NAME:-$(get_env_value DB_NAME)}"
+    local db_password="${DB_PASSWORD:-$(get_env_value DB_PASSWORD)}"
+
+    if [ -z "$db_user" ] || [ -z "$db_name" ] || [ -z "$db_password" ]; then
+        print_warning "Skipping Postgres password sync because DB credentials are missing"
+        return 0
+    fi
+
+    if ! compose ps postgres 2>/dev/null | grep -q "postgres"; then
+        return 0
+    fi
+
+    print_msg "Syncing Postgres password with current .env..." "$YELLOW"
+
+    if ! wait_for_service_health postgres healthy 30 2; then
+        print_warning "Postgres is not healthy yet; skipping password sync"
+        return 0
+    fi
+
+    compose exec -T -e DB_SYNC_PASSWORD="$db_password" postgres sh -lc '
+        psql -U "'"$db_user"'" -d "'"$db_name"'" -v ON_ERROR_STOP=1 \
+          -v db_sync_password="$DB_SYNC_PASSWORD" \
+          -c "ALTER USER \"'"$db_user"'\" WITH PASSWORD :'"'"'db_sync_password'"'"';"
+    ' >/dev/null
+
+    print_success "Postgres password synced"
+}
+
+restart_backend_after_db_sync() {
+    compose restart backend >/dev/null 2>&1 || true
+}
+
 # Print colored message
 print_msg() {
     echo -e "${2}${1}${NC}"
@@ -373,6 +440,9 @@ rebuild_services() {
     print_msg "Rebuilding and starting services..." "$YELLOW"
     compose up --build -d --remove-orphans
 
+    sync_postgres_password
+    restart_backend_after_db_sync
+
     print_success "Services rebuilt successfully"
 }
 
@@ -385,6 +455,9 @@ start_services() {
 
     print_msg "Waiting for services to be healthy..." "$YELLOW"
     sleep 30
+
+    sync_postgres_password
+    restart_backend_after_db_sync
 
     # Check service health
     local max_retries=30
