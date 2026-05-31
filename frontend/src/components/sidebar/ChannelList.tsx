@@ -21,8 +21,9 @@ interface ChannelGroup {
   inviteLink?: string;
   textChannels: Channel[];
   voiceChannels: Channel[];
-  members: Member[];
+  members?: Member[];
   roles?: GroupRole[];
+  currentUserRole?: string;
 }
 
 interface GroupRole {
@@ -77,6 +78,7 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
   const [editChannelMaxMembers, setEditChannelMaxMembers] = useState(100);
   const [isGroupSettingsOpen, setIsGroupSettingsOpen] = useState(false);
   const [channelError, setChannelError] = useState('');
+  const [inviteCopyStatus, setInviteCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [voiceParticipantCounts, setVoiceParticipantCounts] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
 
@@ -264,6 +266,20 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
     setDeleteConfirm(null);
   };
 
+  const copyInviteCode = async () => {
+    if (!currentGroup) return;
+    const inviteText = currentGroup.inviteCode || currentGroup.inviteLink;
+    if (!inviteText) return;
+
+    try {
+      await copyText(inviteText);
+      setInviteCopyStatus('copied');
+    } catch {
+      setInviteCopyStatus('failed');
+    }
+    window.setTimeout(() => setInviteCopyStatus('idle'), 1600);
+  };
+
   if (loading || isLoading) {
     return (
       <div className="flex flex-col h-full p-2">
@@ -289,10 +305,11 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
   }
 
   const currentMembership = currentGroup.members?.find((member) => member.id === currentUser?.id);
+  const currentUserGroupRole = currentGroup.currentUserRole || currentMembership?.groupRole || currentMembership?.role;
   const canManageGroup =
     currentGroup.ownerId === currentUser?.id ||
-    currentMembership?.groupRole === 'admin' ||
-    currentMembership?.role === 'admin';
+    currentUserGroupRole === 'admin' ||
+    currentUserGroupRole === 'moderator';
 
   return (
     <div className="flex flex-col h-full">
@@ -323,18 +340,21 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
               {currentGroup.inviteLink || currentGroup.inviteCode}
             </code>
             <button
-              onClick={() => {
-                const inviteLink = currentGroup.inviteLink || currentGroup.inviteCode;
-                // 只复制邀请码
-                navigator.clipboard.writeText(inviteLink);
-              }}
+              type="button"
+              onClick={() => void copyInviteCode()}
               className="p-1 rounded hover:bg-zinc-700/50 text-zinc-400 hover:text-white transition-all"
-              title="复制邀请码"
+              title={inviteCopyStatus === 'copied' ? '已复制' : inviteCopyStatus === 'failed' ? '复制失败' : '复制邀请码'}
+              aria-label="复制邀请码"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
             </button>
+            {inviteCopyStatus !== 'idle' && (
+              <span className={`text-xs ${inviteCopyStatus === 'copied' ? 'text-emerald-400' : 'text-red-400'}`}>
+                {inviteCopyStatus === 'copied' ? '已复制' : '复制失败'}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -652,6 +672,89 @@ const ChannelList: React.FC<ChannelListProps> = ({ isLoading = false }) => {
 
 function cn(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ');
+}
+
+async function copyText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall through to DOM-based fallbacks.
+    }
+  }
+
+  if (copyTextWithInput(text) || copyTextWithTextarea(text)) {
+    return;
+  }
+
+  throw new Error('Clipboard is unavailable');
+}
+
+function copyTextWithInput(text: string) {
+  if (typeof document.execCommand !== 'function') {
+    return false;
+  }
+
+  const activeElement = document.activeElement;
+  const input = document.createElement('input');
+  input.value = text;
+  input.setAttribute('readonly', '');
+  input.style.position = 'fixed';
+  input.style.left = '0';
+  input.style.top = '0';
+  input.style.width = '1px';
+  input.style.height = '1px';
+  input.style.opacity = '0';
+  input.style.pointerEvents = 'none';
+  document.body.appendChild(input);
+  input.focus({ preventScroll: true });
+  input.select();
+  input.setSelectionRange(0, text.length);
+
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    input.remove();
+    if (activeElement instanceof HTMLElement) {
+      activeElement.focus({ preventScroll: true });
+    }
+  }
+}
+
+function copyTextWithTextarea(text: string) {
+  if (typeof document.execCommand !== 'function') {
+    return false;
+  }
+
+  const activeElement = document.activeElement;
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '0';
+  textarea.style.top = '0';
+  textarea.style.width = '1px';
+  textarea.style.height = '1px';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.focus({ preventScroll: true });
+  textarea.select();
+  textarea.setSelectionRange(0, text.length);
+
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+    if (activeElement instanceof HTMLElement) {
+      activeElement.focus({ preventScroll: true });
+    }
+  }
 }
 
 export default ChannelList;

@@ -14,6 +14,8 @@ frontend/node_modules
 
 # testing
 /coverage
+/reports/perf/
+/scripts/perf/
 
 # next.js
 /.next/

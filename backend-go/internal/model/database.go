@@ -57,7 +57,28 @@ func AutoMigrate(db *gorm.DB) error {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
 
+	if err := createPerformanceIndexes(db); err != nil {
+		return err
+	}
+
 	log.Println("Database migrated successfully")
+	return nil
+}
+
+func createPerformanceIndexes(db *gorm.DB) error {
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_messages_channel_created_at ON messages (channel_id, created_at DESC) WHERE deleted_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_channel_sender_created_at ON messages (channel_id, sender_id, created_at DESC) WHERE deleted_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_user_groups_group_user ON user_groups (group_id, user_id) WHERE deleted_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_user_groups_user_group ON user_groups (user_id, group_id) WHERE deleted_at IS NULL`,
+	}
+
+	for _, query := range indexes {
+		if err := db.Exec(query).Error; err != nil {
+			return fmt.Errorf("failed to create performance index: %w", err)
+		}
+	}
+
 	return nil
 }
 

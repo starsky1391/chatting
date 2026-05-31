@@ -114,13 +114,6 @@ func (s *ChannelGroupService) GetAllGroups() ([]model.ChannelGroupResponse, erro
 
 	responses := make([]model.ChannelGroupResponse, len(groups))
 	for i, group := range groups {
-		if err := s.ensureDefaultChannels(group.ID, group.OwnerID); err != nil {
-			return nil, err
-		}
-		refreshed, err := s.groupRepo.FindByID(group.ID)
-		if err == nil {
-			group = *refreshed
-		}
 		response := model.ToChannelGroupResponse(group)
 		if roles, err := s.getGroupRoleResponses(group.ID); err == nil {
 			response.Roles = roles
@@ -136,13 +129,6 @@ func (s *ChannelGroupService) GetGroupByID(id uint) (*model.ChannelGroupResponse
 		return nil, err
 	}
 
-	if err := s.ensureDefaultChannels(group.ID, group.OwnerID); err != nil {
-		return nil, err
-	}
-	if refreshed, err := s.groupRepo.FindByID(group.ID); err == nil {
-		group = refreshed
-	}
-
 	response := model.ToChannelGroupResponse(*group)
 	if roles, err := s.getGroupRoleResponses(group.ID); err == nil {
 		response.Roles = roles
@@ -156,22 +142,15 @@ func (s *ChannelGroupService) GetUserGroups(userID uint) ([]model.ChannelGroupRe
 		return nil, err
 	}
 
+	userRoles, err := s.userGroupRepo.FindRolesByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+
 	responses := make([]model.ChannelGroupResponse, len(groups))
 	for i, group := range groups {
-		if err := s.ensureDefaultChannels(group.ID, group.OwnerID); err != nil {
-			return nil, err
-		}
-		refreshed, err := s.groupRepo.FindByID(group.ID)
-		if err == nil {
-			group = *refreshed
-		}
 		response := model.ToChannelGroupResponse(group)
-
-		memberResponses, _ := s.getGroupMemberResponses(group.ID)
-		response.Members = memberResponses
-		if roles, err := s.getGroupRoleResponses(group.ID); err == nil {
-			response.Roles = roles
-		}
+		response.CurrentUserRole = userRoles[group.ID]
 
 		responses[i] = response
 	}
@@ -1053,6 +1032,15 @@ func (s *ChannelGroupService) getGroupMemberResponses(groupID uint) ([]model.Use
 		return nil, err
 	}
 
+	onlineStatus := map[uint]bool{}
+	if s.redis != nil {
+		userIDs := make([]uint, 0, len(members))
+		for _, member := range members {
+			userIDs = append(userIDs, member.User.ID)
+		}
+		onlineStatus = s.redis.GetUsersOnlineStatus(userIDs)
+	}
+
 	responses := make([]model.UserResponse, len(members))
 	for i, member := range members {
 		response := model.ToUserResponse(member.User)
@@ -1061,7 +1049,7 @@ func (s *ChannelGroupService) getGroupMemberResponses(groupID uint) ([]model.Use
 			response.Username = s.getAIBotDisplayName(groupID)
 		}
 		if s.redis != nil {
-			response.IsOnline = s.redis.IsUserOnline(member.User.ID)
+			response.IsOnline = onlineStatus[member.User.ID]
 		}
 		if member.Role == AIBotRole {
 			response.IsOnline = true

@@ -102,7 +102,7 @@ func (r *ChannelGroupRepository) FindAll() ([]model.ChannelGroup, error) {
 func (r *ChannelGroupRepository) FindByUserID(userID uint) ([]model.ChannelGroup, error) {
 	var groups []model.ChannelGroup
 	err := r.db.Joins("JOIN user_groups ON user_groups.group_id = channel_groups.id").
-		Where("user_groups.user_id = ?", userID).
+		Where("user_groups.user_id = ? AND user_groups.deleted_at IS NULL", userID).
 		Preload("Channels", func(db *gorm.DB) *gorm.DB {
 			return db.Order("position asc, id asc")
 		}).
@@ -212,7 +212,6 @@ func (r *MessageRepository) FindByChannelID(channelID uint, limit, offset int, d
 	query := r.db.Model(&model.Message{}).
 		Select("messages.*").
 		Preload("Sender").
-		Joins("LEFT JOIN users ON users.id = messages.sender_id").
 		Where("messages.channel_id = ?", channelID).
 		Order("messages.created_at desc")
 
@@ -228,7 +227,7 @@ func (r *MessageRepository) FindByChannelID(channelID uint, limit, offset int, d
 	}
 	if trimmedQuery := strings.TrimSpace(queryText); trimmedQuery != "" {
 		pattern := "%" + escapeLikePattern(trimmedQuery) + "%"
-		query = query.Where(
+		query = query.Joins("LEFT JOIN users ON users.id = messages.sender_id").Where(
 			"(messages.content ILIKE ? ESCAPE '\\' OR users.username ILIKE ? ESCAPE '\\')",
 			pattern,
 			pattern,
@@ -328,6 +327,20 @@ func (r *UserGroupRepository) FindRolesByGroupID(groupID uint) (map[uint]string,
 	roles := make(map[uint]string, len(userGroups))
 	for _, userGroup := range userGroups {
 		roles[userGroup.UserID] = userGroup.Role
+	}
+	return roles, nil
+}
+
+func (r *UserGroupRepository) FindRolesByUserID(userID uint) (map[uint]string, error) {
+	var userGroups []model.UserGroup
+	err := r.db.Select("group_id", "role").Where("user_id = ?", userID).Find(&userGroups).Error
+	if err != nil {
+		return nil, err
+	}
+
+	roles := make(map[uint]string, len(userGroups))
+	for _, userGroup := range userGroups {
+		roles[userGroup.GroupID] = userGroup.Role
 	}
 	return roles, nil
 }

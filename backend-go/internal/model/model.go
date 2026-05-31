@@ -157,19 +157,20 @@ type UserResponse struct {
 }
 
 type ChannelGroupResponse struct {
-	ID            uint                `json:"id"`
-	Name          string              `json:"name"`
-	Description   string              `json:"description"`
-	Icon          string              `json:"icon"`
-	OwnerID       uint                `json:"ownerId"`
-	InviteCode    string              `json:"inviteCode"`
-	InviteLink    string              `json:"inviteLink"` // format: CODE#OWNER_ID
-	TextChannels  []ChannelResponse   `json:"textChannels"`
-	VoiceChannels []ChannelResponse   `json:"voiceChannels"`
-	Members       []UserResponse      `json:"members"`
-	Roles         []GroupRoleResponse `json:"roles"`
-	IsMember      bool                `json:"isMember"` // whether the requesting user is a member
-	MemberCount   int                 `json:"memberCount"`
+	ID              uint                `json:"id"`
+	Name            string              `json:"name"`
+	Description     string              `json:"description"`
+	Icon            string              `json:"icon"`
+	OwnerID         uint                `json:"ownerId"`
+	InviteCode      string              `json:"inviteCode"`
+	InviteLink      string              `json:"inviteLink"` // format: CODE#OWNER_ID
+	TextChannels    []ChannelResponse   `json:"textChannels"`
+	VoiceChannels   []ChannelResponse   `json:"voiceChannels"`
+	Members         []UserResponse      `json:"members"`
+	Roles           []GroupRoleResponse `json:"roles"`
+	IsMember        bool                `json:"isMember"` // whether the requesting user is a member
+	MemberCount     int                 `json:"memberCount"`
+	CurrentUserRole string              `json:"currentUserRole,omitempty"`
 }
 
 type ChannelResponse struct {

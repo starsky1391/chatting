@@ -120,6 +120,43 @@ func (r *RedisClient) IsUserOnline(userID uint) bool {
 	return false
 }
 
+func (r *RedisClient) GetUsersOnlineStatus(userIDs []uint) map[uint]bool {
+	statuses := make(map[uint]bool, len(userIDs))
+	if r == nil || len(userIDs) == 0 {
+		return statuses
+	}
+
+	keys := make([]string, len(userIDs))
+	for i, userID := range userIDs {
+		keys[i] = fmt.Sprintf("user:online:%d", userID)
+	}
+
+	values, err := r.client.MGet(r.ctx, keys...).Result()
+	if err != nil {
+		return statuses
+	}
+
+	for i, value := range values {
+		if value == nil {
+			continue
+		}
+		data, ok := value.(string)
+		if !ok {
+			continue
+		}
+
+		var status map[string]interface{}
+		if err := json.Unmarshal([]byte(data), &status); err != nil {
+			continue
+		}
+		if online, ok := status["online"].(bool); ok {
+			statuses[userIDs[i]] = online
+		}
+	}
+
+	return statuses
+}
+
 // GetUserOnlineStatus returns the full online status info for a user
 func (r *RedisClient) GetUserOnlineStatus(userID uint) (bool, int64) {
 	if r == nil {

@@ -44,8 +44,8 @@ type ProcessedAudio = {
 };
 
 const voiceNoiseModes: Array<{ value: VoiceNoiseMode; label: string; title: string }> = [
-  { value: 'browser_processing', label: '不处理', title: '不做额外处理，使用浏览器自带音频处理' },
-  { value: 'custom_denoise', label: '降噪', title: '开启自适应噪声门和语音增强链路' },
+  { value: 'browser_processing', label: '浏览器', title: '使用浏览器自带回声消除和噪声抑制' },
+  { value: 'custom_denoise', label: '增强降噪', title: '浏览器默认处理后叠加自适应噪声门和语音增强链路' },
 ];
 
 type LiveKitModule = typeof import('livekit-client');
@@ -78,16 +78,12 @@ function buttonClass(active = false, danger = false) {
   return 'flex h-11 w-11 items-center justify-center rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700';
 }
 
-function getBrowserAudioConstraints(): MediaTrackConstraints {
+function getAudioConstraints(noiseMode: VoiceNoiseMode): MediaTrackConstraints {
   return {
     echoCancellation: true,
     noiseSuppression: true,
-    autoGainControl: false,
+    autoGainControl: noiseMode === 'browser_processing',
   };
-}
-
-function getAudioConstraints(): MediaTrackConstraints {
-  return getBrowserAudioConstraints();
 }
 
 export default function VoiceSessionDock() {
@@ -157,7 +153,7 @@ export default function VoiceSessionDock() {
   useEffect(() => {
     const sourceTrack = sourceStreamRef.current?.getAudioTracks()[0];
     if (sourceTrack) {
-      sourceTrack.applyConstraints(getAudioConstraints()).catch(() => {});
+      sourceTrack.applyConstraints(getAudioConstraints(noiseMode)).catch(() => {});
     }
     denoiseNodeRef.current?.port.postMessage({
       type: 'configure',
@@ -249,7 +245,7 @@ export default function VoiceSessionDock() {
       await audioContext.audioWorklet.addModule('/audio/noise-suppressor.worklet.js').catch(() => {});
     }
     const sourceStream = await navigator.mediaDevices.getUserMedia({
-      audio: getAudioConstraints(),
+      audio: getAudioConstraints(noiseMode),
     });
     const source = audioContext.createMediaStreamSource(sourceStream);
     const highPass = audioContext.createBiquadFilter();
