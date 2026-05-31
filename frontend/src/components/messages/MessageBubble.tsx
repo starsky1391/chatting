@@ -18,6 +18,7 @@ interface Message {
     username: string;
     avatar: string;
     avatarUrl?: string;
+    role?: string;
     groupRole?: string;
   };
   createdAt: Date | string;
@@ -81,6 +82,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRecall, onMent
       username: message.sender?.username || 'Unknown',
       avatar: message.sender?.avatar || 'U',
       avatarUrl: message.sender?.avatarUrl || '',
+      role: message.sender?.role || 'member',
       groupRole: message.sender?.groupRole || ''
     },
     createdAt: message.createdAt || new Date(),

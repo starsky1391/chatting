@@ -76,10 +76,10 @@ function mapMessages(items: ApiMessage[], currentUserId: number) {
       username: message.sender?.username || 'Unknown',
       avatar: message.sender?.avatar || '',
       avatarUrl: message.sender?.avatarUrl || '',
+      role: (message.sender?.role as 'admin' | 'moderator' | 'member') || 'member',
       groupRole: message.sender?.groupRole || '',
       email: '',
       isOnline: true,
-      role: 'member',
     },
     isOwn: message.sender?.id === currentUserId,
   }));

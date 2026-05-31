@@ -211,7 +211,9 @@ func (r *MessageRepository) FindByChannelID(channelID uint, limit, offset int, d
 	var messages []model.Message
 	query := r.db.Model(&model.Message{}).
 		Select("messages.*").
-		Preload("Sender").
+		Preload("Sender", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id", "username", "avatar", "avatar_url", "role")
+		}).
 		Where("messages.channel_id = ?", channelID).
 		Order("messages.created_at desc")
 
@@ -245,7 +247,9 @@ func escapeLikePattern(value string) string {
 
 func (r *MessageRepository) FindByID(id uint) (*model.Message, error) {
 	var message model.Message
-	err := r.db.Preload("Sender").First(&message, id).Error
+	err := r.db.Preload("Sender", func(db *gorm.DB) *gorm.DB {
+		return db.Select("id", "username", "avatar", "avatar_url", "role")
+	}).First(&message, id).Error
 	return &message, err
 }
 
@@ -343,6 +347,26 @@ func (r *UserGroupRepository) FindRolesByGroupID(groupID uint) (map[uint]string,
 	}
 
 	roles := make(map[uint]string, len(userGroups))
+	for _, userGroup := range userGroups {
+		roles[userGroup.UserID] = userGroup.Role
+	}
+	return roles, nil
+}
+
+func (r *UserGroupRepository) FindRolesByGroupAndUserIDs(groupID uint, userIDs []uint) (map[uint]string, error) {
+	roles := make(map[uint]string)
+	if len(userIDs) == 0 {
+		return roles, nil
+	}
+
+	var userGroups []model.UserGroup
+	err := r.db.Select("user_id", "role").
+		Where("group_id = ? AND user_id IN ?", groupID, userIDs).
+		Find(&userGroups).Error
+	if err != nil {
+		return nil, err
+	}
+
 	for _, userGroup := range userGroups {
 		roles[userGroup.UserID] = userGroup.Role
 	}

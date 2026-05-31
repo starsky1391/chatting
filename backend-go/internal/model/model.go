@@ -140,6 +140,7 @@ type SenderResponse struct {
 	Username  string `json:"username"`
 	Avatar    string `json:"avatar"`
 	AvatarURL string `json:"avatarUrl"`
+	Role      string `json:"role"`
 	GroupRole string `json:"groupRole,omitempty"`
 }
 
@@ -236,6 +237,7 @@ func ToMessageResponse(msg Message) MessageResponse {
 			Username:  msg.Sender.Username,
 			Avatar:    msg.Sender.Avatar,
 			AvatarURL: msg.Sender.AvatarURL,
+			Role:      msg.Sender.Role,
 		},
 		CreatedAt: msg.CreatedAt,
 	}
@@ -314,6 +316,7 @@ func ToDirectMessageResponse(msg DirectMessage) DirectMessageResponse {
 			Username:  msg.Sender.Username,
 			Avatar:    msg.Sender.Avatar,
 			AvatarURL: msg.Sender.AvatarURL,
+			Role:      msg.Sender.Role,
 		},
 		CreatedAt: msg.CreatedAt,
 	}

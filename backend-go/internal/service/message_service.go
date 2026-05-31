@@ -308,8 +308,24 @@ func (s *MessageService) GetChannelMessages(channelID uint, limit, offset int, d
 	if err != nil {
 		return nil, err
 	}
+	if len(messages) == 0 {
+		return []model.MessageResponse{}, nil
+	}
 
-	decorator := s.newChannelMessageDecorator(channelID)
+	senderIDs := make([]uint, 0, len(messages))
+	seenSenderIDs := make(map[uint]struct{}, len(messages))
+	for _, msg := range messages {
+		if msg.Sender.ID == 0 {
+			continue
+		}
+		if _, exists := seenSenderIDs[msg.Sender.ID]; exists {
+			continue
+		}
+		seenSenderIDs[msg.Sender.ID] = struct{}{}
+		senderIDs = append(senderIDs, msg.Sender.ID)
+	}
+
+	decorator := s.newChannelMessageDecorator(channelID, senderIDs)
 	responses := make([]model.MessageResponse, len(messages))
 	for i, msg := range messages {
 		responses[i] = model.ToMessageResponse(msg)
@@ -325,7 +341,7 @@ type channelMessageDecorator struct {
 	aiBotDisplayName string
 }
 
-func (s *MessageService) newChannelMessageDecorator(channelID uint) channelMessageDecorator {
+func (s *MessageService) newChannelMessageDecorator(channelID uint, senderIDs []uint) channelMessageDecorator {
 	decorator := channelMessageDecorator{
 		userRoles:        map[uint]string{},
 		aiBotDisplayName: AIBotUsername,
@@ -340,7 +356,7 @@ func (s *MessageService) newChannelMessageDecorator(channelID uint) channelMessa
 	}
 	decorator.groupID = channel.GroupID
 
-	if roles, err := s.userGroupRepo.FindRolesByGroupID(channel.GroupID); err == nil {
+	if roles, err := s.userGroupRepo.FindRolesByGroupAndUserIDs(channel.GroupID, senderIDs); err == nil {
 		decorator.userRoles = roles
 	}
 	decorator.aiBotDisplayName = s.getAIBotDisplayName(channel.GroupID)

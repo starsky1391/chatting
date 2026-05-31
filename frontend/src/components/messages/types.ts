@@ -31,6 +31,7 @@ export type ApiMessage = {
     username?: string;
     avatar?: string;
     avatarUrl?: string;
+    role?: string;
     groupRole?: string;
   };
   createdAt: string | Date;
@@ -47,10 +48,10 @@ export type DisplayMessage = {
     username: string;
     avatar: string;
     avatarUrl?: string;
+    role: 'admin' | 'moderator' | 'member';
     groupRole?: string;
     email: string;
     isOnline: boolean;
-    role: 'admin' | 'moderator' | 'member';
   };
   createdAt: string | Date;
   isOwn: boolean;
