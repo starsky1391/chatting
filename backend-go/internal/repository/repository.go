@@ -245,6 +245,19 @@ func escapeLikePattern(value string) string {
 	return replacer.Replace(value)
 }
 
+func (r *MessageRepository) FindByChannelIDAndTimeRange(channelID uint, startAt, endAt time.Time) ([]model.Message, error) {
+	var messages []model.Message
+	err := r.db.Model(&model.Message{}).
+		Select("messages.*").
+		Preload("Sender", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id", "username", "avatar", "avatar_url", "role")
+		}).
+		Where("messages.channel_id = ? AND messages.created_at >= ? AND messages.created_at < ?", channelID, startAt, endAt).
+		Order("messages.created_at asc").
+		Find(&messages).Error
+	return messages, err
+}
+
 func (r *MessageRepository) FindByID(id uint) (*model.Message, error) {
 	var message model.Message
 	err := r.db.Preload("Sender", func(db *gorm.DB) *gorm.DB {

@@ -129,6 +129,205 @@ func TestAIReplyQueueCreatesFollowUpMessage(t *testing.T) {
 	t.Fatalf("timed out waiting for AI reply message")
 }
 
+func TestIsSummarizeRequest(t *testing.T) {
+	tests := []struct {
+		content string
+		want    bool
+	}{
+		{"@AI 总结聊天记录", true},
+		{"@AI 总结聊天记录 今天", true},
+		{"@AI 总结聊天记录 最近7天", true},
+		{"@AI summarize messages", true},
+		{"@AI 总结", true},
+		{"@AI 你好", false},
+		{"@AI 今天天气如何", false},
+		{"总结", true},
+		{"summarize messages", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.content, func(t *testing.T) {
+			got := isSummarizeRequest(tt.content)
+			if got != tt.want {
+				t.Errorf("isSummarizeRequest(%q) = %v, want %v", tt.content, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractSummarizeParams(t *testing.T) {
+	tests := []struct {
+		content       string
+		wantCommand   string
+		wantPeriod    string
+	}{
+		{"@AI 总结聊天记录", "summarize", "today"},
+		{"@AI 总结聊天记录 今天", "summarize", "today"},
+		{"@AI 总结聊天记录 最近7天", "summarize", "last7days"},
+		{"@AI 总结聊天记录 7天", "summarize", "last7days"},
+		{"@AI 总结聊天记录 最近30天", "summarize", "last30days"},
+		{"@AI 总结聊天记录 30天", "summarize", "last30days"},
+		{"@AI summarize messages today", "summarize", "today"},
+		{"@AI 总结", "summarize", "today"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.content, func(t *testing.T) {
+			cmd, period := extractSummarizeParams(tt.content)
+			if cmd != tt.wantCommand {
+				t.Errorf("extractSummarizeParams(%q) command = %q, want %q", tt.content, cmd, tt.wantCommand)
+			}
+			if period != tt.wantPeriod {
+				t.Errorf("extractSummarizeParams(%q) period = %q, want %q", tt.content, period, tt.wantPeriod)
+			}
+		})
+	}
+}
+
+func TestSummarizeChannelMessages(t *testing.T) {
+	db := openServiceTestDB(t)
+	prefix := fmt.Sprintf("summarize-%d-", time.Now().UnixNano())
+	cleanupServiceTestData(t, db, prefix)
+
+	owner := mustCreateUser(t, db, prefix+"owner")
+	member := mustCreateUser(t, db, prefix+"member")
+	bot := mustCreateUser(t, db, prefix+"bot")
+
+	group := mustCreateGroup(t, db, prefix+"group", owner.ID)
+	mustCreateChannels(t, db, group.ID, owner.ID)
+	mustCreateMembership(t, db, owner.ID, group.ID, "owner")
+	mustCreateMembership(t, db, member.ID, group.ID, "guest")
+	mustCreateMembership(t, db, bot.ID, group.ID, AIBotRole)
+	mustCreateAIConfig(t, db, group.ID, "https://example.test/v1", "sk-test", "gpt-test", "机器人")
+
+	channel := mustFindTextChannel(t, db, group.ID, "general")
+
+	// Create messages in the channel
+	mustCreateMessage(t, db, channel.ID, member.ID, "Hello everyone")
+	mustCreateMessage(t, db, channel.ID, owner.ID, "Welcome to the channel")
+	mustCreateMessage(t, db, channel.ID, member.ID, "Let's discuss the project")
+
+	service := newMessageServiceForTest(db)
+
+	// Test "today" period
+	prompt, err := service.summarizeChannelMessages(channel.ID, "today")
+	if err != nil {
+		t.Fatalf("summarizeChannelMessages(today): %v", err)
+	}
+	if !strings.Contains(prompt, "请总结以下聊天记录的主要内容和要点") {
+		t.Errorf("prompt does not contain expected header")
+	}
+	if !strings.Contains(prompt, "Hello everyone") {
+		t.Errorf("prompt does not contain member message")
+	}
+	if !strings.Contains(prompt, "Welcome to the channel") {
+		t.Errorf("prompt does not contain owner message")
+	}
+
+	// Test empty messages
+	prompt, err = service.summarizeChannelMessages(channel.ID, "last7days")
+	if err != nil {
+		t.Fatalf("summarizeChannelMessages(last7days): %v", err)
+	}
+	if !strings.Contains(prompt, "请总结以下聊天记录的主要内容和要点") {
+		t.Errorf("prompt does not contain expected header")
+	}
+	if !strings.Contains(prompt, "Hello everyone") {
+		t.Errorf("prompt does not contain member message")
+	}
+}
+
+func TestSummarizeChannelMessagesNoMessages(t *testing.T) {
+	db := openServiceTestDB(t)
+	prefix := fmt.Sprintf("summarize-empty-%d-", time.Now().UnixNano())
+	cleanupServiceTestData(t, db, prefix)
+
+	owner := mustCreateUser(t, db, prefix+"owner")
+	bot := mustCreateUser(t, db, prefix+"bot")
+
+	group := mustCreateGroup(t, db, prefix+"group", owner.ID)
+	mustCreateChannels(t, db, group.ID, owner.ID)
+	mustCreateMembership(t, db, owner.ID, group.ID, "owner")
+	mustCreateMembership(t, db, bot.ID, group.ID, AIBotRole)
+	mustCreateAIConfig(t, db, group.ID, "https://example.test/v1", "sk-test", "gpt-test", "机器人")
+
+	channel := mustFindTextChannel(t, db, group.ID, "general")
+
+	service := newMessageServiceForTest(db)
+
+	// Test with no messages - use a future period where no messages exist
+	prompt, err := service.summarizeChannelMessages(channel.ID, "today")
+	if err != nil {
+		t.Fatalf("summarizeChannelMessages: %v", err)
+	}
+	if prompt != "该时间段内没有消息可总结。" {
+		t.Errorf("expected no messages message, got: %q", prompt)
+	}
+}
+
+func TestBuildAIReplySummarizeRequest(t *testing.T) {
+	db := openServiceTestDB(t)
+	prefix := fmt.Sprintf("aisummary-%d-", time.Now().UnixNano())
+	cleanupServiceTestData(t, db, prefix)
+
+	owner := mustCreateUser(t, db, prefix+"owner")
+	member := mustCreateUser(t, db, prefix+"member")
+	bot := mustCreateUser(t, db, prefix+"bot")
+
+	group := mustCreateGroup(t, db, prefix+"group", owner.ID)
+	mustCreateChannels(t, db, group.ID, owner.ID)
+	mustCreateMembership(t, db, owner.ID, group.ID, "owner")
+	mustCreateMembership(t, db, member.ID, group.ID, "guest")
+	mustCreateMembership(t, db, bot.ID, group.ID, AIBotRole)
+	mustCreateAIConfig(t, db, group.ID, "https://example.test/v1", "sk-test", "gpt-test", "机器人")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"这是聊天记录的总结"}}]}`))
+	}))
+	defer server.Close()
+
+	_ = db.Model(&model.GroupAIConfig{}).Where("group_id = ?", group.ID).Updates(map[string]interface{}{
+		"api_url":  server.URL + "/v1",
+		"api_key":  "",
+		"ai_model": "gpt-test",
+		"bot_name": "机器人",
+	}).Error
+
+	channel := mustFindTextChannel(t, db, group.ID, "general")
+
+	// Create some messages to summarize
+	mustCreateMessage(t, db, channel.ID, member.ID, "Message 1")
+	mustCreateMessage(t, db, channel.ID, owner.ID, "Message 2")
+
+	service := newMessageServiceForTest(db)
+	service.aiService = NewAIService(configAIConfig(server.URL+"/v1", "", "gpt-test"))
+
+	botUser, answer, err := service.buildAIReply(channel.ID, "@AI 总结聊天记录")
+	if err != nil {
+		t.Fatalf("buildAIReply: %v", err)
+	}
+	if botUser == nil {
+		t.Fatal("expected bot user, got nil")
+	}
+	if answer != "这是聊天记录的总结" {
+		t.Errorf("answer = %q, want %q", answer, "这是聊天记录的总结")
+	}
+
+	// Verify the AI reply message was created in the database
+	var count int64
+	_ = db.Model(&model.Message{}).
+		Where("channel_id = ? AND sender_id = ? AND content = ?", channel.ID, botUser.ID, "这是聊天记录的总结").
+		Count(&count).Error
+	if count != 1 {
+		t.Errorf("expected 1 AI summary message, got %d", count)
+	}
+}
+
 func newMessageServiceForTest(db *gorm.DB) *MessageService {
 	messageRepo := repository.NewMessageRepository(db)
 	userRepo := repository.NewUserRepository(db)

@@ -222,6 +222,69 @@ func (s *MessageService) shouldAskAI(channelID uint, content string) bool {
 	return s.userGroupRepo.Exists(bot.ID, channel.GroupID)
 }
 
+func isSummarizeRequest(content string) bool {
+	lower := strings.ToLower(strings.TrimSpace(content))
+	return strings.Contains(lower, "总结聊天记录") ||
+		strings.Contains(lower, "summarize messages") ||
+		strings.Contains(lower, "总结")
+}
+
+func extractSummarizeParams(content string) (command string, period string) {
+	lower := strings.ToLower(strings.TrimSpace(content))
+
+	// 提取时间段
+	period = "today" // 默认今天
+	if strings.Contains(lower, "最近7天") || strings.Contains(lower, "7天") {
+		period = "last7days"
+	} else if strings.Contains(lower, "最近30天") || strings.Contains(lower, "30天") {
+		period = "last30days"
+	} else if strings.Contains(lower, "今天") || strings.Contains(lower, "today") {
+		period = "today"
+	}
+
+	return "summarize", period
+}
+
+func (s *MessageService) summarizeChannelMessages(channelID uint, period string) (string, error) {
+	// 根据时间段计算时间范围
+	now := time.Now()
+	var startAt, endAt time.Time
+
+	switch period {
+	case "last7days":
+		startAt = now.AddDate(0, 0, -7)
+	case "last30days":
+		startAt = now.AddDate(0, 0, -30)
+	case "today":
+		startAt = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	default:
+		startAt = now.AddDate(0, 0, -1)
+	}
+	endAt = now
+
+	// 查询消息
+	messages, err := s.messageRepo.FindByChannelIDAndTimeRange(channelID, startAt, endAt)
+	if err != nil {
+		return "", err
+	}
+
+	if len(messages) == 0 {
+		return "该时间段内没有消息可总结。", nil
+	}
+
+	// 构建总结prompt
+	var sb strings.Builder
+	sb.WriteString("请总结以下聊天记录的主要内容和要点：\n\n")
+	for _, msg := range messages {
+		sb.WriteString(fmt.Sprintf("[%s] %s: %s\n",
+			msg.CreatedAt.Format("2006-01-02 15:04"),
+			msg.Sender.Username,
+			msg.Content))
+	}
+
+	return sb.String(), nil
+}
+
 func (s *MessageService) buildAIReply(channelID uint, prompt string) (*model.User, string, error) {
 	if s.aiService == nil {
 		return nil, "", nil
@@ -244,6 +307,29 @@ func (s *MessageService) buildAIReply(channelID uint, prompt string) (*model.Use
 		if savedConfig, err := s.aiConfigRepo.FindByGroupID(channel.GroupID); err == nil {
 			groupConfig = savedConfig
 		}
+	}
+
+	// 检查是否为总结请求
+	if isSummarizeRequest(prompt) {
+		_, period := extractSummarizeParams(prompt)
+		summaryPrompt, err := s.summarizeChannelMessages(channelID, period)
+		if err != nil {
+			return bot, "", err
+		}
+
+		// 调用AI进行总结
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		answer, err := s.aiService.AskWithConfig(ctx, summaryPrompt, configFromGroupAIConfig(groupConfig))
+		if err != nil {
+			return bot, "", err
+		}
+
+		if _, err := s.createMessageAs(bot.ID, channelID, answer); err != nil {
+			return bot, "", err
+		}
+		return bot, answer, nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
