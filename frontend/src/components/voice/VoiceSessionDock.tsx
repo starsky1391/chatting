@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Headphones, Loader2, Mic, MicOff, PhoneOff, Radio, Volume2 } from 'lucide-react';
+import { Headphones, Loader2, Mic, MicOff, Monitor, PhoneOff, Radio, Volume2 } from 'lucide-react';
 import type { LocalAudioTrack, Participant, Room } from 'livekit-client';
 import { api } from '@/lib/api';
 import { connectWebSocket, onWebSocketMessage, sendWebSocketMessage } from '@/lib/socket';
@@ -110,6 +110,16 @@ export default function VoiceSessionDock() {
   const setVoiceNoiseMode = useChatStore((state) => state.setVoiceNoiseMode);
   const setVoiceError = useChatStore((state) => state.setVoiceError);
 
+  // Screen share state
+  const isScreenSharing = useChatStore((state) => state.isScreenSharing);
+  const screenShareParticipant = useChatStore((state) => state.screenShareParticipant);
+  const isScreenShareExpanded = useChatStore((state) => state.isScreenShareExpanded);
+  const screenShareTrack = useChatStore((state) => state.screenShareTrack);
+  const setScreenSharing = useChatStore((state) => state.setScreenSharing);
+  const setScreenShareParticipant = useChatStore((state) => state.setScreenShareParticipant);
+  const setScreenShareExpanded = useChatStore((state) => state.setScreenShareExpanded);
+  const setScreenShareTrack = useChatStore((state) => state.setScreenShareTrack);
+
   const [isConnecting, setIsConnecting] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
   const roomRef = useRef<Room | null>(null);
@@ -122,6 +132,7 @@ export default function VoiceSessionDock() {
   const activeVoiceChannelRef = useRef<VoiceChannel | null>(null);
   const isLeavingRef = useRef(false);
   const handledJoinNonceRef = useRef<number | null>(null);
+  const screenShareVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const selectedVoiceChannel = currentChannel?.type === 'voice' ? currentChannel as VoiceChannel : null;
   const targetChannel = activeVoiceChannel || selectedVoiceChannel;
@@ -349,7 +360,14 @@ export default function VoiceSessionDock() {
       room.on(RoomEvent.TrackUnmuted, (_publication, participant) => {
         updateParticipantMute(participant.identity, false);
       });
-      room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+      room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+        // Handle screen share tracks
+        if (track.kind === Track.Kind.Video && publication.source === Track.Source.ScreenShare) {
+          setScreenShareTrack(track.mediaStreamTrack);
+          setScreenShareParticipant(participant.name || participant.identity);
+          return;
+        }
+
         if (track.kind !== Track.Kind.Audio) return;
         const audioElement = track.attach() as HTMLAudioElement;
         audioElement.id = `audio-${participant.identity}`;
@@ -359,7 +377,15 @@ export default function VoiceSessionDock() {
         document.body.appendChild(audioElement);
         remoteAudioElementsRef.current.set(participant.identity, audioElement);
       });
-      room.on(RoomEvent.TrackUnsubscribed, (track, _publication, participant) => {
+      room.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+        // Handle screen share tracks
+        if (track.kind === Track.Kind.Video && publication.source === Track.Source.ScreenShare) {
+          track.detach().forEach((element) => element.remove());
+          setScreenShareTrack(null);
+          setScreenShareParticipant(null);
+          return;
+        }
+
         if (track.kind !== Track.Kind.Audio) return;
         track.detach().forEach((element) => element.remove());
         remoteAudioElementsRef.current.delete(participant.identity);
@@ -418,6 +444,8 @@ export default function VoiceSessionDock() {
     outputVolume,
     removeParticipant,
     setActiveVoiceChannel,
+    setScreenShareParticipant,
+    setScreenShareTrack,
     setVoiceError,
     updateParticipantMute,
     updateSpeakingStatus,
@@ -491,6 +519,53 @@ export default function VoiceSessionDock() {
     }
   };
 
+  // Screen share functions
+  const startScreenShare = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: 'always' as const },
+        audio: false,
+      });
+
+      const track = stream.getVideoTracks()[0];
+      if (!track) return;
+
+      const livekit = await loadLiveKit();
+      const room = roomRef.current;
+      if (!room) return;
+
+      const screenTrack = new livekit.LocalVideoTrack(track, undefined, true);
+      await room.localParticipant.publishTrack(screenTrack, {
+        source: livekit.Track.Source.ScreenShare,
+      });
+
+      setScreenSharing(true);
+      setScreenShareTrack(track);
+      setScreenShareParticipant(currentUser?.username || 'You');
+
+      track.addEventListener('ended', () => {
+        stopScreenShare();
+      });
+    } catch (err) {
+      console.error('Failed to start screen share:', err);
+    }
+  };
+
+  const stopScreenShare = async () => {
+    const room = roomRef.current;
+    if (room) {
+      room.localParticipant.trackPublications.forEach((pub) => {
+        if (pub.track?.source === 'screen_share') {
+          room.localParticipant.unpublishTrack(pub.track);
+        }
+      });
+    }
+
+    setScreenSharing(false);
+    setScreenShareTrack(null);
+    setScreenShareParticipant(null);
+  };
+
   const participantSummary = useMemo(() => {
     if (!isInCall) return '未加入语音';
     const count = voiceParticipants.length || 1;
@@ -500,97 +575,185 @@ export default function VoiceSessionDock() {
   if (!currentUser) return null;
 
   return (
-    <div
-      className="fixed bottom-[150px] left-[16px] z-40"
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
-    >
-      {isHovering && (
-        <div className="absolute bottom-0 left-[56px] w-72 rounded-lg border border-zinc-700 bg-[#151517] p-3 shadow-2xl">
-          <div className="mb-3">
-            <p className="truncate text-sm font-medium text-white">{targetChannel?.name || '语音频道'}</p>
-            <p className="text-xs text-zinc-500">{participantSummary}</p>
-            {voiceError && <p className="mt-2 rounded-md bg-red-500/10 px-2 py-1 text-xs text-red-300">{voiceError}</p>}
-          </div>
-          <div className="space-y-3">
-            <label className="block">
-              <div className="mb-1 flex items-center justify-between text-xs text-zinc-400">
-                <span className="flex items-center gap-1"><Mic className="h-3.5 w-3.5" /> 麦克风输入</span>
-                <span>{inputVolume}%</span>
+    <>
+      {/* Screen Share Window */}
+      {screenShareTrack && (
+        <div
+          className={`fixed z-50 ${
+            isScreenShareExpanded
+              ? 'inset-0 flex items-center justify-center bg-black/90'
+              : 'bottom-4 right-4 w-80'
+          }`}
+          onClick={() => !isScreenShareExpanded && setScreenShareExpanded(true)}
+        >
+          <div
+            className={`${
+              isScreenShareExpanded
+                ? 'relative w-full h-full max-w-7xl max-h-screen p-4'
+                : 'rounded-lg border border-zinc-700 bg-zinc-900/95 shadow-2xl overflow-hidden'
+            }`}
+          >
+            {/* Header */}
+            <div
+              className={`flex items-center justify-between px-3 py-2 ${
+                isScreenShareExpanded ? 'absolute top-4 right-4 left-4 z-10' : 'border-b border-zinc-700'
+              }`}
+            >
+              <span className="text-sm text-white truncate">
+                {screenShareParticipant || 'Unknown'} 的屏幕
+              </span>
+              <div className="flex gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setScreenShareExpanded(!isScreenShareExpanded);
+                  }}
+                  className="p-1 rounded hover:bg-zinc-700 text-zinc-300"
+                  title={isScreenShareExpanded ? '缩小' : '放大'}
+                >
+                  {isScreenShareExpanded ? (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7m0 0l7-7m-7 7h14" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    stopScreenShare();
+                  }}
+                  className="p-1 rounded hover:bg-red-500/20 text-zinc-300 hover:text-red-400"
+                  title="关闭"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
-              <input
-                type="range"
-                min="0"
-                max="200"
-                value={inputVolume}
-                onChange={(event) => setVoiceInputVolume(Number(event.target.value))}
-                className="w-full accent-indigo-500"
+            </div>
+            {/* Video */}
+            <div className={`${isScreenShareExpanded ? 'w-full h-full' : 'aspect-video bg-zinc-950'}`}>
+              <video
+                ref={(el) => {
+                  if (el && screenShareTrack) {
+                    const stream = new MediaStream([screenShareTrack]);
+                    el.srcObject = stream;
+                  }
+                }}
+                autoPlay
+                playsInline
+                className={`${isScreenShareExpanded ? 'w-full h-full object-contain rounded-lg' : 'w-full h-full object-contain'}`}
               />
-            </label>
-            <label className="block">
-              <div className="mb-1 flex items-center justify-between text-xs text-zinc-400">
-                <span className="flex items-center gap-1"><Volume2 className="h-3.5 w-3.5" /> 接收音量</span>
-                <span>{isDeafened ? 0 : outputVolume}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={outputVolume}
-                onChange={(event) => setVoiceOutputVolume(Number(event.target.value))}
-                className="w-full accent-indigo-500"
-              />
-            </label>
-            <div>
-              <div className="mb-1 text-xs text-zinc-400">音频处理</div>
-              <div className="grid grid-cols-2 rounded-xl border border-zinc-700 bg-zinc-900/70 p-1">
-                {voiceNoiseModes.map((mode) => (
-                  <button
-                    key={mode.value}
-                    type="button"
-                    onClick={() => setVoiceNoiseMode(mode.value)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                      noiseMode === mode.value
-                        ? 'bg-indigo-500 text-white'
-                        : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
-                    }`}
-                    title={mode.title}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
         </div>
       )}
 
-      <div className="flex flex-col items-center gap-2 rounded-2xl border border-zinc-800 bg-[#111113]/95 p-1.5 shadow-xl">
-        {!isInCall ? (
-          <button
-            type="button"
-            onClick={handlePrimaryClick}
-            disabled={!canJoinSelectedVoice}
-            className={`${buttonClass(canJoinSelectedVoice)} disabled:cursor-not-allowed disabled:opacity-40`}
-            title={selectedVoiceChannel ? `加入 ${selectedVoiceChannel.name}` : '选择语音频道后加入'}
-          >
-            {isConnecting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Radio className="h-5 w-5" />}
-          </button>
-        ) : (
-          <>
-            <button type="button" onClick={() => void toggleMute()} className={buttonClass(isMuted)} title={isMuted ? '打开麦克风' : '关闭麦克风'}>
-              {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-            </button>
-            <button type="button" onClick={toggleDeafen} className={buttonClass(isDeafened)} title={isDeafened ? '恢复接收声音' : '关闭接收声音'}>
-              <Headphones className="h-5 w-5" />
-            </button>
-            <button type="button" onClick={() => void leaveVoiceCall()} className={buttonClass(false, true)} title="离开语音">
-              <PhoneOff className="h-5 w-5" />
-            </button>
-          </>
+      <div
+        className="fixed bottom-[150px] left-[16px] z-40"
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
+      >
+        {isHovering && (
+          <div className="absolute bottom-0 left-[56px] w-72 rounded-lg border border-zinc-700 bg-[#151517] p-3 shadow-2xl">
+            <div className="mb-3">
+              <p className="truncate text-sm font-medium text-white">{targetChannel?.name || '语音频道'}</p>
+              <p className="text-xs text-zinc-500">{participantSummary}</p>
+              {voiceError && <p className="mt-2 rounded-md bg-red-500/10 px-2 py-1 text-xs text-red-300">{voiceError}</p>}
+            </div>
+            <div className="space-y-3">
+              <label className="block">
+                <div className="mb-1 flex items-center justify-between text-xs text-zinc-400">
+                  <span className="flex items-center gap-1"><Mic className="h-3.5 w-3.5" /> 麦克风输入</span>
+                  <span>{inputVolume}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  value={inputVolume}
+                  onChange={(event) => setVoiceInputVolume(Number(event.target.value))}
+                  className="w-full accent-indigo-500"
+                />
+              </label>
+              <label className="block">
+                <div className="mb-1 flex items-center justify-between text-xs text-zinc-400">
+                  <span className="flex items-center gap-1"><Volume2 className="h-3.5 w-3.5" /> 接收音量</span>
+                  <span>{isDeafened ? 0 : outputVolume}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={outputVolume}
+                  onChange={(event) => setVoiceOutputVolume(Number(event.target.value))}
+                  className="w-full accent-indigo-500"
+                />
+              </label>
+              <div>
+                <div className="mb-1 text-xs text-zinc-400">音频处理</div>
+                <div className="grid grid-cols-2 rounded-xl border border-zinc-700 bg-zinc-900/70 p-1">
+                  {voiceNoiseModes.map((mode) => (
+                    <button
+                      key={mode.value}
+                      type="button"
+                      onClick={() => setVoiceNoiseMode(mode.value)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                        noiseMode === mode.value
+                          ? 'bg-indigo-500 text-white'
+                          : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
+                      }`}
+                      title={mode.title}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         )}
+
+        <div className="flex flex-col items-center gap-2 rounded-2xl border border-zinc-800 bg-[#111113]/95 p-1.5 shadow-xl">
+          {!isInCall ? (
+            <button
+              type="button"
+              onClick={handlePrimaryClick}
+              disabled={!canJoinSelectedVoice}
+              className={`${buttonClass(canJoinSelectedVoice)} disabled:cursor-not-allowed disabled:opacity-40`}
+              title={selectedVoiceChannel ? `加入 ${selectedVoiceChannel.name}` : '选择语音频道后加入'}
+            >
+              {isConnecting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Radio className="h-5 w-5" />}
+            </button>
+          ) : (
+            <>
+              <button type="button" onClick={() => void toggleMute()} className={buttonClass(isMuted)} title={isMuted ? '打开麦克风' : '关闭麦克风'}>
+                {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+              </button>
+              <button type="button" onClick={toggleDeafen} className={buttonClass(isDeafened)} title={isDeafened ? '恢复接收声音' : '关闭接收声音'}>
+                <Headphones className="h-5 w-5" />
+              </button>
+              {/* Screen Share Button */}
+              <button
+                type="button"
+                onClick={isScreenSharing ? stopScreenShare : startScreenShare}
+                className={buttonClass(isScreenSharing)}
+                title={isScreenSharing ? '停止共享' : '共享屏幕'}
+              >
+                <Monitor className="h-5 w-5" />
+              </button>
+              <button type="button" onClick={() => void leaveVoiceCall()} className={buttonClass(false, true)} title="离开语音">
+                <PhoneOff className="h-5 w-5" />
+              </button>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
