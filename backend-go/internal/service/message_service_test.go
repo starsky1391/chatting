@@ -138,10 +138,9 @@ func TestIsSummarizeRequest(t *testing.T) {
 		{"@AI 总结聊天记录 今天", true},
 		{"@AI 总结聊天记录 最近7天", true},
 		{"@AI summarize messages", true},
-		{"@AI 总结", true},
 		{"@AI 你好", false},
 		{"@AI 今天天气如何", false},
-		{"总结", true},
+		{"总结", false},
 		{"summarize messages", true},
 	}
 
@@ -157,26 +156,22 @@ func TestIsSummarizeRequest(t *testing.T) {
 
 func TestExtractSummarizeParams(t *testing.T) {
 	tests := []struct {
-		content       string
-		wantCommand   string
-		wantPeriod    string
+		content    string
+		wantPeriod string
 	}{
-		{"@AI 总结聊天记录", "summarize", "today"},
-		{"@AI 总结聊天记录 今天", "summarize", "today"},
-		{"@AI 总结聊天记录 最近7天", "summarize", "last7days"},
-		{"@AI 总结聊天记录 7天", "summarize", "last7days"},
-		{"@AI 总结聊天记录 最近30天", "summarize", "last30days"},
-		{"@AI 总结聊天记录 30天", "summarize", "last30days"},
-		{"@AI summarize messages today", "summarize", "today"},
-		{"@AI 总结", "summarize", "today"},
+		{"@AI 总结聊天记录", "today"},
+		{"@AI 总结聊天记录 今天", "today"},
+		{"@AI 总结聊天记录 最近7天", "last7days"},
+		{"@AI 总结聊天记录 7天", "last7days"},
+		{"@AI 总结聊天记录 最近30天", "last30days"},
+		{"@AI 总结聊天记录 30天", "last30days"},
+		{"@AI summarize messages today", "today"},
+		{"@AI 总结", "today"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.content, func(t *testing.T) {
-			cmd, period := extractSummarizeParams(tt.content)
-			if cmd != tt.wantCommand {
-				t.Errorf("extractSummarizeParams(%q) command = %q, want %q", tt.content, cmd, tt.wantCommand)
-			}
+			period := extractSummarizeParams(tt.content)
 			if period != tt.wantPeriod {
 				t.Errorf("extractSummarizeParams(%q) period = %q, want %q", tt.content, period, tt.wantPeriod)
 			}
@@ -318,13 +313,13 @@ func TestBuildAIReplySummarizeRequest(t *testing.T) {
 		t.Errorf("answer = %q, want %q", answer, "这是聊天记录的总结")
 	}
 
-	// Verify the AI reply message was created in the database
+	// Verify the AI summary message was NOT created in the database (buildAIReply doesn't create it)
 	var count int64
 	_ = db.Model(&model.Message{}).
 		Where("channel_id = ? AND sender_id = ? AND content = ?", channel.ID, botUser.ID, "这是聊天记录的总结").
 		Count(&count).Error
-	if count != 1 {
-		t.Errorf("expected 1 AI summary message, got %d", count)
+	if count != 0 {
+		t.Errorf("expected 0 AI summary message (buildAIReply should not create message), got %d", count)
 	}
 }
 

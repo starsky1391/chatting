@@ -225,15 +225,14 @@ func (s *MessageService) shouldAskAI(channelID uint, content string) bool {
 func isSummarizeRequest(content string) bool {
 	lower := strings.ToLower(strings.TrimSpace(content))
 	return strings.Contains(lower, "总结聊天记录") ||
-		strings.Contains(lower, "summarize messages") ||
-		strings.Contains(lower, "总结")
+		strings.Contains(lower, "summarize messages")
 }
 
-func extractSummarizeParams(content string) (command string, period string) {
+func extractSummarizeParams(content string) string {
 	lower := strings.ToLower(strings.TrimSpace(content))
 
 	// 提取时间段
-	period = "today" // 默认今天
+	period := "today" // 默认今天
 	if strings.Contains(lower, "最近7天") || strings.Contains(lower, "7天") {
 		period = "last7days"
 	} else if strings.Contains(lower, "最近30天") || strings.Contains(lower, "30天") {
@@ -242,7 +241,7 @@ func extractSummarizeParams(content string) (command string, period string) {
 		period = "today"
 	}
 
-	return "summarize", period
+	return period
 }
 
 func (s *MessageService) summarizeChannelMessages(channelID uint, period string) (string, error) {
@@ -311,7 +310,7 @@ func (s *MessageService) buildAIReply(channelID uint, prompt string) (*model.Use
 
 	// 检查是否为总结请求
 	if isSummarizeRequest(prompt) {
-		_, period := extractSummarizeParams(prompt)
+		period := extractSummarizeParams(prompt)
 		summaryPrompt, err := s.summarizeChannelMessages(channelID, period)
 		if err != nil {
 			return bot, "", err
@@ -326,9 +325,6 @@ func (s *MessageService) buildAIReply(channelID uint, prompt string) (*model.Use
 			return bot, "", err
 		}
 
-		if _, err := s.createMessageAs(bot.ID, channelID, answer); err != nil {
-			return bot, "", err
-		}
 		return bot, answer, nil
 	}
 

@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = process.cwd();
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(scriptDir, '..');
 const readmePath = path.join(root, 'README.md');
 const outPath = path.join(root, 'docs', 'readme.html');
 const markdown = fs.readFileSync(readmePath, 'utf8').replace(/^\uFEFF/, '');
@@ -113,11 +115,11 @@ function renderLines(lines) {
         rows.push(splitTableRow(lines[i]));
         i += 1;
       }
-      html.push('<div class="my-8 overflow-hidden rounded-lg border border-neutral-200"><table class="w-full text-sm">');
-      html.push(`<thead><tr class="border-b border-neutral-200 bg-neutral-50">${headers.map((h) => `<th class="px-4 py-3 text-left font-medium text-neutral-500">${inline(h)}</th>`).join('')}</tr></thead>`);
+      html.push('<div class="my-8 overflow-x-auto rounded-lg border border-neutral-200"><table class="min-w-[920px] w-full text-xs leading-snug">');
+      html.push(`<thead><tr class="border-b border-neutral-200 bg-neutral-50">${headers.map((h) => `<th class="whitespace-nowrap px-2.5 py-2 text-left font-medium text-neutral-500">${inline(h)}</th>`).join('')}</tr></thead>`);
       html.push('<tbody>');
       for (const row of rows) {
-        html.push(`<tr class="border-b border-neutral-100 last:border-0">${row.map((cell) => `<td class="px-4 py-3 align-top text-neutral-600">${inline(cell)}</td>`).join('')}</tr>`);
+        html.push(`<tr class="border-b border-neutral-100 last:border-0">${row.map((cell) => `<td class="whitespace-nowrap px-2.5 py-2 align-top text-neutral-600">${inline(cell)}</td>`).join('')}</tr>`);
       }
       html.push('</tbody></table></div>');
       continue;

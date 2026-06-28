@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chatting 陈氏 ER 总图</title>
+  <style>
+    :root {
+      --paper: #faf8f2;
+      --ink: #111820;
+      --muted: #5f6b78;
+      --grid: #e4ddd1;
+      --blue: #0647b8;
+      --green: #237348;
+      --orange: #b76700;
+      --red: #b8332d;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Inter, "Segoe UI", "Microsoft YaHei UI", "Noto Sans SC", Arial, sans-serif;
+    }
+
+    body { padding: 18px; }
+
+    header {
+      max-width: 1900px;
+      margin: 0 auto 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      align-items: flex-end;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 3vw, 52px);
+      line-height: 1.04;
+      font-weight: 300;
+      letter-spacing: -0.035em;
+    }
+
+    .subtitle {
+      margin-top: 8px;
+      max-width: 1120px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .meta {
+      min-width: 330px;
+      text-align: right;
+      color: var(--muted);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.7;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .legend {
+      max-width: 1900px;
+      margin: 0 auto 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .m { width: 24px; height: 13px; border: 2px solid var(--ink); background: #fff; display: inline-block; }
+    .m.r { width: 17px; height: 17px; transform: rotate(45deg); border-color: var(--blue); }
+    .m.a { width: 38px; border-radius: 999px; border-width: 1.5px; }
+
+    .stage {
+      max-width: 1900px;
+      margin: 0 auto;
+      overflow: auto;
+      border: 1px solid var(--grid);
+      background:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+        #fffefb;
+      background-size: 40px 40px;
+      box-shadow: 0 18px 54px rgba(17, 24, 32, .08);
+    }
+
+    svg {
+      width: 100%;
+      min-width: 1760px;
+      height: auto;
+      display: block;
+    }
+
+    .edge {
+      fill: none;
+      stroke: var(--ink);
+      stroke-width: 2.1;
+      stroke-linecap: square;
+      stroke-linejoin: round;
+    }
+    .edge.blue { stroke: var(--blue); }
+    .edge.green { stroke: var(--green); }
+    .edge.orange { stroke: var(--orange); }
+    .edge.red { stroke: var(--red); }
+    .edge.attr { stroke: #768391; stroke-width: 1.45; }
+
+    .entity rect {
+      fill: #fff;
+      stroke: var(--ink);
+      stroke-width: 2.4;
+    }
+    .entity.main rect {
+      stroke: var(--red);
+      stroke-width: 3;
+    }
+    .entity text {
+      text-anchor: middle;
+      dominant-baseline: middle;
+      fill: var(--ink);
+      font-size: 16px;
+      font-weight: 820;
+    }
+    .entity .en {
+      fill: var(--muted);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+
+    .rel polygon {
+      fill: #fff;
+      stroke: var(--blue);
+      stroke-width: 2.3;
+    }
+    .rel.green polygon { stroke: var(--green); }
+    .rel.orange polygon { stroke: var(--orange); }
+    .rel.red polygon { stroke: var(--red); }
+    .rel text {
+      text-anchor: middle;
+      dominant-baseline: middle;
+      fill: var(--blue);
+      font-size: 13px;
+      font-weight: 850;
+    }
+    .rel.green text { fill: var(--green); }
+    .rel.orange text { fill: var(--orange); }
+    .rel.red text { fill: var(--red); }
+
+    .attr ellipse {
+      fill: #fff;
+      stroke: #647282;
+      stroke-width: 1.6;
+    }
+    .attr.key ellipse {
+      stroke: var(--red);
+      stroke-width: 1.9;
+    }
+    .attr text {
+      text-anchor: middle;
+      dominant-baseline: middle;
+      fill: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+    }
+    .attr.key text { fill: var(--red); }
+
+    .note {
+      fill: rgba(250, 248, 242, .9);
+      stroke: var(--grid);
+      stroke-width: 1.5;
+    }
+    .note-title {
+      fill: var(--blue);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .12em;
+    }
+    .note-text {
+      fill: var(--muted);
+      font-size: 12px;
+      font-weight: 550;
+    }
+    .small {
+      fill: var(--muted);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+
+    @media (max-width: 900px) {
+      body { padding: 12px; }
+      header { flex-direction: column; align-items: flex-start; }
+      .meta { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Chatting 陈氏 ER 总图</h1>
+      <div class="subtitle">
+        这版按“表表对应”的总图重画：每张表只出现一次，USERS 只出现一次，所有表通过联系菱形连成一个整体。属性只保留关键字段，避免属性过多遮挡结构。
+      </div>
+    </div>
+    <div class="meta">
+      ONE ENTITY PER TABLE<br>
+      SINGLE CONNECTED GRAPH<br>
+      CHEN ER / TABLE-MAPPED
+    </div>
+  </header>
+
+  <div class="legend">
+    <span><i class="m"></i>实体：一张表只出现一次</span>
+    <span><i class="m r"></i>联系：来自 README 的表关系</span>
+    <span><i class="m a"></i>属性：仅保留关键字段</span>
+    <span>建议浏览器缩放到 67%-80% 查看全图。</span>
+  </div>
+
+  <main class="stage">
+    <svg viewBox="0 0 1900 1180" role="img" aria-label="Chatting 项目陈氏 ER 总图">
+      <rect class="note" x="50" y="50" width="1800" height="1080"></rect>
+      <text class="small" x="85" y="86">FULL CONNECTED CHEN ER GRAPH / EACH TABLE APPEARS ONCE</text>
+
+      <!-- Main relationship edges: every entity appears once -->
+      <path class="edge red" d="M500 560 L590 560"></path>
+      <path class="edge red" d="M670 560 L760 560"></path>
+
+      <path class="edge orange" d="M500 560 L555 435 L625 435"></path>
+      <path class="edge orange" d="M705 435 L760 500"></path>
+
+      <path class="edge blue" d="M840 560 L940 560"></path>
+      <path class="edge blue" d="M1020 560 L1130 560"></path>
+
+      <path class="edge green" d="M840 560 L935 710"></path>
+      <path class="edge green" d="M1015 710 L1130 710"></path>
+
+      <path class="edge blue" d="M1290 560 L1390 560"></path>
+      <path class="edge blue" d="M1470 560 L1570 560"></path>
+
+      <path class="edge blue" d="M500 560 L590 330"></path>
+      <path class="edge blue" d="M670 330 L1570 560"></path>
+
+      <path class="edge blue" d="M1290 560 L1388 710"></path>
+      <path class="edge blue" d="M1468 710 L1570 710"></path>
+
+      <path class="edge green" d="M500 560 L590 825"></path>
+      <path class="edge green" d="M670 825 L760 825"></path>
+
+      <path class="edge green" d="M500 560 L588 960"></path>
+      <path class="edge green" d="M668 960 L760 960"></path>
+
+      <path class="edge orange" d="M500 560 L936 875"></path>
+      <path class="edge orange" d="M1016 875 L1130 875"></path>
+
+      <path class="edge blue" d="M1290 875 L1390 875"></path>
+      <path class="edge blue" d="M1470 875 L1570 875"></path>
+
+      <path class="edge blue" d="M500 560 L936 1010"></path>
+      <path class="edge blue" d="M1016 1010 L1570 875"></path>
+
+      <!-- Attribute edges -->
+      <path class="edge attr" d="M420 420 L420 500"></path>
+      <path class="edge attr" d="M335 560 L260 560"></path>
+      <path class="edge attr" d="M820 410 L820 500"></path>
+      <path class="edge attr" d="M820 620 L820 655"></path>
+      <path class="edge attr" d="M1210 410 L1210 500"></path>
+      <path class="edge attr" d="M1210 620 L1210 655"></path>
+      <path class="edge attr" d="M1655 430 L1655 520"></path>
+      <path class="edge attr" d="M1655 620 L1655 650"></path>
+      <path class="edge attr" d="M1210 775 L1210 750"></path>
+      <path class="edge attr" d="M1210 845 L1210 835"></path>
+      <path class="edge attr" d="M1655 785 L1655 750"></path>
+      <path class="edge attr" d="M1655 835 L1655 815"></path>
+      <path class="edge attr" d="M820 900 L820 865"></path>
+      <path class="edge attr" d="M820 1025 L820 990"></path>
+      <path class="edge attr" d="M1210 940 L1210 915"></path>
+      <path class="edge attr" d="M1210 1035 L1210 950"></path>
+
+      <!-- Entities -->
+      <g class="entity main" transform="translate(335 500)">
+        <rect width="165" height="120"></rect>
+        <text x="82.5" y="42">用户</text>
+        <text class="en" x="82.5" y="68">USERS</text>
+        <text class="en" x="82.5" y="91">central entity</text>
+      </g>
+
+      <g class="entity" transform="translate(760 500)">
+        <rect width="160" height="120"></rect>
+        <text x="80" y="42">群组</text>
+        <text class="en" x="80" y="68">CHANNEL_GROUPS</text>
+      </g>
+
+      <g class="entity" transform="translate(1130 500)">
+        <rect width="160" height="120"></rect>
+        <text x="80" y="42">频道</text>
+        <text class="en" x="80" y="68">CHANNELS</text>
+      </g>
+
+      <g class="entity" transform="translate(1570 520)">
+        <rect width="170" height="100"></rect>
+        <text x="85" y="35">频道消息</text>
+        <text class="en" x="85" y="60">MESSAGES</text>
+      </g>
+
+      <g class="entity" transform="translate(1130 655)">
+        <rect width="160" height="95"></rect>
+        <text x="80" y="33">角色组</text>
+        <text class="en" x="80" y="57">GROUP_ROLES</text>
+      </g>
+
+      <g class="entity" transform="translate(1570 655)">
+        <rect width="170" height="95"></rect>
+        <text x="85" y="33">活跃频道成员</text>
+        <text class="en" x="85" y="57">USER_CHANNELS</text>
+      </g>
+
+      <g class="entity" transform="translate(760 785)">
+        <rect width="160" height="80"></rect>
+        <text x="80" y="30">好友申请</text>
+        <text class="en" x="80" y="53">FRIEND_REQUESTS</text>
+      </g>
+
+      <g class="entity" transform="translate(760 930)">
+        <rect width="160" height="80"></rect>
+        <text x="80" y="30">好友关系</text>
+        <text class="en" x="80" y="53">FRIENDSHIPS</text>
+      </g>
+
+      <g class="entity" transform="translate(1130 835)">
+        <rect width="160" height="80"></rect>
+        <text x="80" y="30">私信会话</text>
+        <text class="en" x="80" y="53">DIRECT_CONVERSATIONS</text>
+      </g>
+
+      <g class="entity" transform="translate(1570 835)">
+        <rect width="170" height="80"></rect>
+        <text x="85" y="30">私信消息</text>
+        <text class="en" x="85" y="53">DIRECT_MESSAGES</text>
+      </g>
+
+      <!-- Relationship diamonds -->
+      <g class="rel red" transform="translate(630 560)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">拥有</text><text y="14">1:N</text>
+      </g>
+
+      <g class="rel orange" transform="translate(665 435)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">加入</text><text y="14">N:M</text>
+      </g>
+
+      <g class="rel" transform="translate(980 560)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">包含</text><text y="14">1:N</text>
+      </g>
+
+      <g class="rel green" transform="translate(975 710)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">定义</text><text y="14">1:N</text>
+      </g>
+
+      <g class="rel" transform="translate(1430 560)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">产生</text><text y="14">1:N</text>
+      </g>
+
+      <g class="rel" transform="translate(630 330)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">发送</text><text y="14">1:N</text>
+      </g>
+
+      <g class="rel" transform="translate(1428 710)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">活跃于</text><text y="14">N:M</text>
+      </g>
+
+      <g class="rel green" transform="translate(630 825)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">发起/接收</text><text y="14">1:N</text>
+      </g>
+
+      <g class="rel green" transform="translate(628 960)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">好友</text><text y="14">N:M</text>
+      </g>
+
+      <g class="rel orange" transform="translate(976 875)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">参与</text><text y="14">N:M</text>
+      </g>
+
+      <g class="rel" transform="translate(1430 875)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">包含</text><text y="14">1:N</text>
+      </g>
+
+      <g class="rel" transform="translate(976 1010)">
+        <polygon points="0,-42 55,0 0,42 -55,0"></polygon>
+        <text y="-7">发送</text><text y="14">1:N</text>
+      </g>
+
+      <!-- Attributes -->
+      <g class="attr key" transform="translate(420 395)"><ellipse rx="72" ry="20"></ellipse><text>id / email</text></g>
+      <g class="attr" transform="translate(225 560)"><ellipse rx="90" ry="20"></ellipse><text>username / role</text></g>
+      <g class="attr key" transform="translate(820 385)"><ellipse rx="82" ry="20"></ellipse><text>invite_code</text></g>
+      <g class="attr" transform="translate(820 680)"><ellipse rx="78" ry="20"></ellipse><text>name / icon</text></g>
+      <g class="attr" transform="translate(1210 385)"><ellipse rx="74" ry="20"></ellipse><text>name / type</text></g>
+      <g class="attr" transform="translate(1210 680)"><ellipse rx="88" ry="20"></ellipse><text>position / limit</text></g>
+      <g class="attr" transform="translate(1655 405)"><ellipse rx="78" ry="20"></ellipse><text>content</text></g>
+      <g class="attr" transform="translate(1655 675)"><ellipse rx="78" ry="20"></ellipse><text>created_at</text></g>
+      <g class="attr" transform="translate(1210 785)"><ellipse rx="72" ry="20"></ellipse><text>name / color</text></g>
+      <g class="attr" transform="translate(1210 820)"><ellipse rx="70" ry="20"></ellipse><text>is_default</text></g>
+      <g class="attr" transform="translate(1655 790)"><ellipse rx="80" ry="20"></ellipse><text>joined_at</text></g>
+      <g class="attr" transform="translate(1655 820)"><ellipse rx="72" ry="20"></ellipse><text>channel_id</text></g>
+      <g class="attr" transform="translate(820 890)"><ellipse rx="92" ry="20"></ellipse><text>status / message</text></g>
+      <g class="attr" transform="translate(820 1045)"><ellipse rx="76" ry="20"></ellipse><text>friend_id</text></g>
+      <g class="attr key" transform="translate(1210 960)"><ellipse rx="76" ry="20"></ellipse><text>pair_key</text></g>
+      <g class="attr" transform="translate(1210 1060)"><ellipse rx="110" ry="20"></ellipse><text>last_message_at</text></g>
+
+      <!-- Notes -->
+      <g>
+        <rect class="note" x="90" y="1085" width="1720" height="58"></rect>
+        <text class="note-title" x="115" y="1110">READING NOTE</text>
+        <text class="note-text" x="255" y="1110">这是表级总图：USERS、CHANNEL_GROUPS、CHANNELS、MESSAGES、USER_GROUPS、USER_CHANNELS、GROUP_ROLES、FRIEND_REQUESTS、FRIENDSHIPS、DIRECT_CONVERSATIONS、DIRECT_CONVERSATION_MEMBERS、DIRECT_MESSAGES 均映射进图中。</text>
+        <text class="note-text" x="255" y="1134">USER_GROUPS / USER_CHANNELS / DIRECT_CONVERSATION_MEMBERS 在 Chen 图中表现为“加入 / 活跃于 / 参与”联系，而非重复实体。</text>
+      </g>
+    </svg>
+  </main>
+</body>
+</html>
