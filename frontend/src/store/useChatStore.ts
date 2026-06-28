@@ -121,6 +121,16 @@ export interface ChatState {
   setVoiceError: (error: string | null) => void;
   requestJoinVoiceChannel: (channel: Channel) => void;
 
+  // 屏幕共享相关
+  isScreenSharing: boolean;
+  screenShareParticipant: string | null;
+  isScreenShareExpanded: boolean;
+  screenShareTrack: MediaStreamTrack | null;
+  setScreenSharing: (isSharing: boolean) => void;
+  setScreenShareParticipant: (participant: string | null) => void;
+  setScreenShareExpanded: (isExpanded: boolean) => void;
+  setScreenShareTrack: (track: MediaStreamTrack | null) => void;
+
   // 私信相关
   activeDirectConversationId: number | null;
   setActiveDirectConversationId: (conversationId: number | null) => void;
@@ -414,6 +424,16 @@ export const useChatStore = create<ChatState>((set) => {
     },
     setVoiceError: (error) => set({ voiceError: error }),
     requestJoinVoiceChannel: (channel) => set({ voiceJoinRequest: { channel, nonce: Date.now() } }),
+
+    // 屏幕共享状态
+    isScreenSharing: false,
+    screenShareParticipant: null,
+    isScreenShareExpanded: false,
+    screenShareTrack: null,
+    setScreenSharing: (isSharing) => set({ isScreenSharing: isSharing }),
+    setScreenShareParticipant: (participant) => set({ screenShareParticipant: participant }),
+    setScreenShareExpanded: (isExpanded) => set({ isScreenShareExpanded: isExpanded }),
+    setScreenShareTrack: (track) => set({ screenShareTrack: track }),
 
     // 私信相关
     activeDirectConversationId: null,
