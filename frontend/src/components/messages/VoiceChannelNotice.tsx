@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { api } from '@/lib/api';
 import { config } from '@/lib/config';
 import { onWebSocketMessage } from '@/lib/socket';
+import { useChatStore } from '@/store/useChatStore';
 import type { CallParticipant, Channel } from './types';
 
 type VoiceChannelNoticeProps = {
@@ -31,7 +32,12 @@ const VoiceChannelNotice: React.FC<VoiceChannelNoticeProps> = ({
   requestJoinVoiceChannel,
 }) => {
   const [callParticipants, setCallParticipants] = useState<CallParticipant[]>([]);
+  const [expandedParticipant, setExpandedParticipant] = useState<string | null>(null);
   const isVoiceChannel = currentChannel.type === 'voice' && Boolean(currentChannel.id);
+
+  // Get screen share track from store
+  const screenShareTrack = useChatStore((state) => state.screenShareTrack);
+  const screenShareParticipant = useChatStore((state) => state.screenShareParticipant);
   const activeCallCount = useMemo(() => {
     if (isInCall && activeVoiceChannelId === currentChannel.id) {
       return voiceParticipants.length || 1;
@@ -140,67 +146,163 @@ const VoiceChannelNotice: React.FC<VoiceChannelNoticeProps> = ({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {isInCall && activeVoiceChannelId === currentChannel.id ? (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-            {voiceParticipants.map((participant) => (
-              <div
-                key={participant.identity}
-                className={`rounded-lg border p-3 ${
-                  participant.isSpeaking
-                    ? 'border-green-500/40 bg-green-500/10'
-                    : 'border-gray-700 bg-gray-800'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-semibold text-white">
-                    {participant.avatarUrl ? (
-                      <Image
-                        src={config.api.avatarThumbUrl(participant.avatarUrl, 40)}
-                        alt=""
-                        fill
-                        sizes="40px"
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      participant.name.charAt(0).toUpperCase()
-                    )}
+          <div className="flex flex-col gap-2">
+            {/* Expanded participant (if any) - Full width */}
+            {expandedParticipant && (() => {
+              const participant = voiceParticipants.find(p => p.identity === expandedParticipant);
+              if (!participant) return null;
+              const isScreenSharing = screenShareTrack && screenShareParticipant === participant.name;
+
+              return (
+                <div
+                  key={`expanded-${participant.identity}`}
+                  onClick={() => setExpandedParticipant(null)}
+                  className="relative w-full rounded-xl overflow-hidden border-2 border-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)] transition-all duration-300 cursor-pointer"
+                  style={{ aspectRatio: '16/9' }}
+                >
+                  {/* Screen Share or Avatar */}
+                  {isScreenSharing ? (
+                    <video
+                      ref={(el) => {
+                        if (el && screenShareTrack) {
+                          el.srcObject = new MediaStream([screenShareTrack]);
+                        }
+                      }}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="relative w-full h-full bg-gray-800 flex items-center justify-center">
+                      {participant.avatarUrl ? (
+                        <Image
+                          src={config.api.avatarThumbUrl(participant.avatarUrl, 480)}
+                          alt=""
+                          fill
+                          sizes="480px"
+                          className="object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <span className="text-white font-bold text-6xl">
+                          {participant.name.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Name at bottom left */}
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1">
+                    <p className="text-white font-medium truncate text-base">{participant.name}</p>
                   </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-white">{participant.name}</p>
-                    <p className="text-xs text-gray-400">
-                      {participant.isSpeaking ? '正在说话' : participant.isMuted ? '已静音' : '在线'}
-                    </p>
-                  </div>
+
+                  {/* Muted indicator */}
+                  {participant.isMuted && (
+                    <div className="absolute top-3 right-3 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center">
+                      <svg className="text-white w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                      </svg>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })()}
+
+            {/* Other participants - Small size */}
+            <div className="flex flex-wrap gap-2 content-start">
+              {voiceParticipants
+                .filter(p => p.identity !== expandedParticipant)
+                .map((participant) => {
+                  const isScreenSharing = screenShareTrack && screenShareParticipant === participant.name;
+
+                  return (
+                    <div
+                      key={participant.identity}
+                      onClick={() => setExpandedParticipant(participant.identity)}
+                      className={`relative rounded-xl overflow-hidden border-2 transition-all duration-300 cursor-pointer ${
+                        participant.isSpeaking
+                          ? 'border-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]'
+                          : 'border-gray-700'
+                      } w-80 h-[180px]`}
+                    >
+                      {/* Screen Share or Avatar */}
+                      {isScreenSharing ? (
+                        <video
+                          ref={(el) => {
+                            if (el && screenShareTrack) {
+                              el.srcObject = new MediaStream([screenShareTrack]);
+                            }
+                          }}
+                          autoPlay
+                          playsInline
+                          muted
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="relative w-full h-full bg-gray-800 flex items-center justify-center">
+                          {participant.avatarUrl ? (
+                            <Image
+                              src={config.api.avatarThumbUrl(participant.avatarUrl, 320)}
+                              alt=""
+                              fill
+                              sizes="320px"
+                              className="object-cover"
+                              unoptimized
+                            />
+                          ) : (
+                            <span className="text-white font-bold text-4xl">
+                              {participant.name.charAt(0).toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Name at bottom left */}
+                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1">
+                        <p className="text-white font-medium truncate text-sm">{participant.name}</p>
+                      </div>
+
+                      {/* Muted indicator */}
+                      {participant.isMuted && (
+                        <div className="absolute top-2 right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center">
+                          <svg className="text-white w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
           </div>
         ) : callParticipants.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+          <div className="flex flex-wrap gap-2 content-start">
             {callParticipants.map((participant) => (
               <div
                 key={participant.userId}
-                className="rounded-lg border border-gray-700 bg-gray-800 p-3"
+                className="relative w-24 h-24 rounded-xl overflow-hidden border-2 border-gray-700"
               >
-                <div className="flex items-center gap-3">
-                  <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-semibold text-white">
-                    {participant.avatarUrl ? (
-                      <Image
-                        src={config.api.avatarThumbUrl(participant.avatarUrl, 40)}
-                        alt=""
-                        fill
-                        sizes="40px"
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      participant.username.charAt(0).toUpperCase()
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-white">{participant.username}</p>
-                    <p className="text-xs text-gray-400">通话中</p>
-                  </div>
+                <div className="relative w-full h-full bg-gray-800 flex items-center justify-center">
+                  {participant.avatarUrl ? (
+                    <Image
+                      src={config.api.avatarThumbUrl(participant.avatarUrl, 96)}
+                      alt=""
+                      fill
+                      sizes="96px"
+                      className="object-cover"
+                      unoptimized
+                    />
+                  ) : (
+                    <span className="text-white text-2xl font-bold">
+                      {participant.username.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1">
+                  <p className="text-white text-xs font-medium truncate">{participant.username}</p>
                 </div>
               </div>
             ))}

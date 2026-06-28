@@ -63,6 +63,12 @@ export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
   const roomRef = useRef<Room | null>(null);
   const localAudioTrackRef = useRef<Track | null>(null);
 
+  // Screen share track state
+  const [screenShareTracks, setScreenShareTracks] = useState<Map<string, MediaStreamTrack>>(new Map());
+
+  // Expanded participant state
+  const [expandedParticipant, setExpandedParticipant] = useState<string | null>(null);
+
   // 获取 LiveKit Token
   const getToken = async (roomName: string): Promise<{ token: string; livekitUrl: string }> => {
     const response = await api.get<{ token: string; livekitUrl: string }>(
@@ -153,6 +159,13 @@ export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
           audioElement.autoplay = true;
           document.body.appendChild(audioElement);
           console.log('[LiveKit] Audio element attached for', participant.identity, 'autoplay:', audioElement.autoplay);
+        } else if (track.kind === Track.Kind.Video && publication.source === Track.Source.ScreenShare) {
+          // Screen share track
+          setScreenShareTracks(prev => {
+            const newMap = new Map(prev);
+            newMap.set(participant.identity, track.mediaStreamTrack);
+            return newMap;
+          });
         }
       });
 
@@ -161,6 +174,12 @@ export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
         console.log('[LiveKit] Track unsubscribed:', track.kind, 'from', participant.identity);
         if (track.kind === Track.Kind.Audio) {
           track.detach().forEach(element => element.remove());
+        } else if (track.kind === Track.Kind.Video && publication.source === Track.Source.ScreenShare) {
+          setScreenShareTracks(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(participant.identity);
+            return newMap;
+          });
         }
       });
 
@@ -324,48 +343,72 @@ export default function VoiceRoomLiveKit({ currentChannel }: VoiceRoomProps) {
             <p className="text-sm">点击下方按钮加入语音</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-wrap gap-2 content-start">
             {(isInCall ? Array.from(participants.values()) : callParticipants).map((p) => {
               const key = isInCall ? (p as ParticipantData).identity : (p as CallParticipant).userId;
               const name = isInCall ? (p as ParticipantData).name : (p as CallParticipant).username;
               const avatarUrl = p.avatarUrl;
               const isSpeaking = isInCall && 'isSpeaking' in p && p.isSpeaking;
-              const isMuted = isInCall && 'isMuted' in p && p.isMuted;
-              
+              const isParticipantMuted = isInCall && 'isMuted' in p && p.isMuted;
+              const screenTrack = isInCall ? screenShareTracks.get(String(key)) : null;
+              const isExpanded = expandedParticipant === String(key);
+
               return (
                 <div
                   key={key}
-                  className={`p-3 rounded-lg border ${
+                  onClick={() => setExpandedParticipant(isExpanded ? null : String(key))}
+                  className={`relative rounded-xl overflow-hidden border-2 transition-all duration-300 cursor-pointer ${
                     isSpeaking
-                      ? 'bg-green-500/10 border-green-500/30'
-                      : 'bg-gray-800 border-gray-700'
-                  }`}
+                      ? 'border-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]'
+                      : 'border-gray-700'
+                  } ${isExpanded ? 'w-48 h-48' : 'w-24 h-24'}`}
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="relative w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-sm overflow-hidden">
+                  {/* Avatar or Screen Share */}
+                  {screenTrack ? (
+                    <video
+                      ref={(el) => {
+                        if (el && screenTrack) {
+                          el.srcObject = new MediaStream([screenTrack]);
+                        }
+                      }}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gray-800 flex items-center justify-center">
                       {avatarUrl ? (
                         <Image
-                          src={config.api.avatarThumbUrl(avatarUrl, 32)}
+                          src={config.api.avatarThumbUrl(avatarUrl, isExpanded ? 192 : 96)}
                           alt=""
                           fill
-                          sizes="32px"
+                          sizes={isExpanded ? "192px" : "96px"}
                           className="object-cover"
                           unoptimized
                         />
                       ) : (
-                        (name || '?').charAt(0).toUpperCase()
+                        <span className={`text-white font-bold ${isExpanded ? 'text-4xl' : 'text-2xl'}`}>
+                          {(name || '?').charAt(0).toUpperCase()}
+                        </span>
                       )}
                     </div>
-                    <div>
-                      <p className="text-white text-sm font-medium">{name}</p>
-                      <p className="text-xs text-gray-400">
-                        {isInCall
-                          ? (isSpeaking ? '正在说话...' : isMuted ? '已静音' : '在线')
-                          : '通话中'
-                        }
-                      </p>
-                    </div>
+                  )}
+
+                  {/* Name at bottom left */}
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1">
+                    <p className={`text-white font-medium truncate ${isExpanded ? 'text-sm' : 'text-xs'}`}>{name}</p>
                   </div>
+
+                  {/* Muted indicator */}
+                  {isParticipantMuted && (
+                    <div className={`absolute bg-red-500 rounded-full flex items-center justify-center ${isExpanded ? 'top-2 right-2 w-7 h-7' : 'top-1 right-1 w-5 h-5'}`}>
+                      <svg className={`text-white ${isExpanded ? 'w-4 h-4' : 'w-3 h-3'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                      </svg>
+                    </div>
+                  )}
                 </div>
               );
             })}

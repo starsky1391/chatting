@@ -70,6 +70,7 @@ const VoiceRoom: React.FC<VoiceRoomProps> = ({ currentChannel }) => {
   const [participants, setParticipants] = useState<Map<number, VoiceParticipant>>(new Map());
   const [isMuted, setIsMuted] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [expandedParticipant, setExpandedParticipant] = useState<number | null>(null);
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnections = useRef<Map<number, RTCPeerConnection>>(new Map());

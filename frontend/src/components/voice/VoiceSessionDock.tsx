@@ -523,7 +523,7 @@ export default function VoiceSessionDock() {
   const startScreenShare = async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: 'always' as const },
+        video: true,
         audio: false,
       });
 
@@ -576,82 +576,7 @@ export default function VoiceSessionDock() {
 
   return (
     <>
-      {/* Screen Share Window */}
-      {screenShareTrack && (
-        <div
-          className={`fixed z-50 ${
-            isScreenShareExpanded
-              ? 'inset-0 flex items-center justify-center bg-black/90'
-              : 'bottom-4 right-4 w-80'
-          }`}
-          onClick={() => !isScreenShareExpanded && setScreenShareExpanded(true)}
-        >
-          <div
-            className={`${
-              isScreenShareExpanded
-                ? 'relative w-full h-full max-w-7xl max-h-screen p-4'
-                : 'rounded-lg border border-zinc-700 bg-zinc-900/95 shadow-2xl overflow-hidden'
-            }`}
-          >
-            {/* Header */}
-            <div
-              className={`flex items-center justify-between px-3 py-2 ${
-                isScreenShareExpanded ? 'absolute top-4 right-4 left-4 z-10' : 'border-b border-zinc-700'
-              }`}
-            >
-              <span className="text-sm text-white truncate">
-                {screenShareParticipant || 'Unknown'} 的屏幕
-              </span>
-              <div className="flex gap-1">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setScreenShareExpanded(!isScreenShareExpanded);
-                  }}
-                  className="p-1 rounded hover:bg-zinc-700 text-zinc-300"
-                  title={isScreenShareExpanded ? '缩小' : '放大'}
-                >
-                  {isScreenShareExpanded ? (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7m0 0l7-7m-7 7h14" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                    </svg>
-                  )}
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    stopScreenShare();
-                  }}
-                  className="p-1 rounded hover:bg-red-500/20 text-zinc-300 hover:text-red-400"
-                  title="关闭"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-            {/* Video */}
-            <div className={`${isScreenShareExpanded ? 'w-full h-full' : 'aspect-video bg-zinc-950'}`}>
-              <video
-                ref={(el) => {
-                  if (el && screenShareTrack) {
-                    const stream = new MediaStream([screenShareTrack]);
-                    el.srcObject = stream;
-                  }
-                }}
-                autoPlay
-                playsInline
-                className={`${isScreenShareExpanded ? 'w-full h-full object-contain rounded-lg' : 'w-full h-full object-contain'}`}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Screen Share Window - REMOVED: Now shown in VoiceChannelNotice capsule */}
 
       <div
         className="fixed bottom-[150px] left-[16px] z-40"
